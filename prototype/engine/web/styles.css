@@ -1,0 +1,226 @@
+﻿:root {
+  color-scheme: dark;
+  --bg-0: #07131a;
+  --bg-1: #102631;
+  --bg-2: #183946;
+  --glass: rgba(201, 237, 255, 0.14);
+  --glass-edge: rgba(202, 239, 255, 0.72);
+  --glass-back: rgba(163, 214, 235, 0.08);
+  --accent: #7ee7ff;
+  --accent-strong: #cbfbff;
+  --text: #f2fbff;
+  --muted: rgba(242, 251, 255, 0.68);
+  --panel: rgba(6, 17, 23, 0.72);
+  --panel-border: rgba(183, 229, 247, 0.18);
+  --shadow: rgba(0, 0, 0, 0.35);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(circle at top left, rgba(116, 226, 255, 0.18), transparent 30%),
+    radial-gradient(circle at 85% 15%, rgba(132, 210, 255, 0.13), transparent 26%),
+    linear-gradient(160deg, var(--bg-0) 0%, var(--bg-1) 48%, var(--bg-2) 100%);
+  color: var(--text);
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+}
+
+body {
+  min-height: 100vh;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(280px, 360px);
+  gap: 24px;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.stage-panel {
+  position: relative;
+  min-height: 540px;
+  border: 1px solid var(--panel-border);
+  border-radius: 28px;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(207, 242, 255, 0.04), rgba(207, 242, 255, 0.01)),
+    radial-gradient(circle at 50% 10%, rgba(154, 222, 252, 0.07), transparent 36%),
+    rgba(5, 12, 17, 0.56);
+  box-shadow:
+    0 24px 50px var(--shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+#viewport {
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: grab;
+  touch-action: none;
+}
+
+#viewport.dragging {
+  cursor: grabbing;
+}
+
+.stage-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 28px;
+}
+
+.brand-block {
+  max-width: 560px;
+}
+
+.eyebrow,
+.panel-label {
+  margin: 0 0 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  color: var(--accent);
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(2.1rem, 4vw, 4rem);
+  line-height: 0.95;
+  font-weight: 700;
+  max-width: 12ch;
+}
+
+.summary,
+.panel-copy {
+  margin: 14px 0 0;
+  line-height: 1.55;
+  color: var(--muted);
+  max-width: 52ch;
+}
+
+.hint-card {
+  align-self: flex-start;
+  display: inline-flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(200, 239, 255, 0.18);
+  background: rgba(7, 15, 21, 0.56);
+  backdrop-filter: blur(8px);
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.hud-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.panel-block {
+  border: 1px solid var(--panel-border);
+  border-radius: 22px;
+  background: var(--panel);
+  padding: 18px 18px 20px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 12px;
+  margin: 0;
+}
+
+.metrics div {
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(156, 223, 246, 0.06);
+  border: 1px solid rgba(167, 225, 245, 0.12);
+}
+
+.metrics dt {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.metrics dd {
+  margin: 8px 0 0;
+  font-size: 1.45rem;
+  line-height: 1;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+button {
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 12px 18px;
+  color: #07131a;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+  box-shadow: 0 12px 20px rgba(126, 231, 255, 0.2);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:hover {
+  filter: brightness(1.05);
+}
+
+.notes-block ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+@media (max-width: 960px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .stage-panel {
+    min-height: 60vh;
+  }
+}
+
+@media (max-width: 640px) {
+  .layout {
+    padding: 14px;
+    gap: 14px;
+  }
+
+  .stage-overlay {
+    padding: 18px;
+  }
+
+  .hint-card {
+    border-radius: 18px;
+  }
+}

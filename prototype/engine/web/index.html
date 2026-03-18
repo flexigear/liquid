@@ -1,0 +1,80 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Liquid Prototype</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="layout">
+    <section class="stage-panel">
+      <canvas id="viewport" aria-label="Square glass container prototype"></canvas>
+      <div class="stage-overlay">
+        <div class="brand-block">
+          <p class="eyebrow">Liquid / Minimal Testable Prototype</p>
+          <h1>Swish water inside a glass cube.</h1>
+          <p class="summary">
+            Drag on the viewport to rotate the container with a virtual trackball. The droplets stay attached to the inner glass,
+            slide under gravity and angular inertia, and merge into larger bodies when they meet.
+          </p>
+        </div>
+        <div class="hint-card">
+          <span>Drag to rotate</span>
+          <span>Release to watch the liquid lag and settle</span>
+        </div>
+      </div>
+    </section>
+
+    <aside class="hud-panel">
+      <section class="panel-block">
+        <p class="panel-label">Prototype Goal</p>
+        <p class="panel-copy">
+          Validate the hand-feel of rotating a transparent container and letting water drops gather against the inner walls.
+        </p>
+      </section>
+
+      <section class="panel-block metrics-block">
+        <p class="panel-label">Live Metrics</p>
+        <dl class="metrics">
+          <div>
+            <dt>Droplets</dt>
+            <dd id="metric-count">0</dd>
+          </div>
+          <div>
+            <dt>Largest Share</dt>
+            <dd id="metric-largest">0%</dd>
+          </div>
+          <div>
+            <dt>Support Face</dt>
+            <dd id="metric-face">Y-</dd>
+          </div>
+          <div>
+            <dt>Angular Speed</dt>
+            <dd id="metric-spin">0.00</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="panel-block controls-block">
+        <p class="panel-label">Controls</p>
+        <div class="button-row">
+          <button id="reset-button" type="button">Reset Drops</button>
+          <button id="scatter-button" type="button">Scatter</button>
+        </div>
+      </section>
+
+      <section class="panel-block notes-block">
+        <p class="panel-label">Model Notes</p>
+        <ul>
+          <li>Water stays on the currently supporting inner face instead of floating freely.</li>
+          <li>Container motion feeds apparent gravity and angular inertia.</li>
+          <li>Droplets merge by conserved volume and render as stretched caps on the glass.</li>
+        </ul>
+      </section>
+    </aside>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,807 @@
+﻿const canvas = document.getElementById("viewport");
+const ctx = canvas.getContext("2d");
+
+const metricCount = document.getElementById("metric-count");
+const metricLargest = document.getElementById("metric-largest");
+const metricFace = document.getElementById("metric-face");
+const metricSpin = document.getElementById("metric-spin");
+const resetButton = document.getElementById("reset-button");
+const scatterButton = document.getElementById("scatter-button");
+
+const CONFIG = {
+  halfSize: 1,
+  wallInset: 0.07,
+  baseRadius: 0.135,
+  gravityStrength: 8.5,
+  surfaceDrag: 2.6,
+  edgeBounce: 0.22,
+  edgeSlideDamping: 0.9,
+  attractionStrength: 7.5,
+  faceSwitchThreshold: 0.18,
+  mergeFactor: 0.92,
+  followSharpness: 9,
+  interiorOffset: 0.028,
+  maxDt: 1 / 30,
+  cameraDistance: 4.8,
+  projectionScale: 0.92,
+};
+
+const WORLD_GRAVITY = vec3(0, -CONFIG.gravityStrength, 0);
+const FACE_AXES = ["x", "y", "z"];
+const CUBE_VERTICES = [
+  vec3(-1, -1, -1),
+  vec3(1, -1, -1),
+  vec3(1, 1, -1),
+  vec3(-1, 1, -1),
+  vec3(-1, -1, 1),
+  vec3(1, -1, 1),
+  vec3(1, 1, 1),
+  vec3(-1, 1, 1),
+].map((point) => scale(point, CONFIG.halfSize));
+
+const CUBE_FACES = [
+  { id: "x-", axis: "x", side: -1, normal: vec3(-1, 0, 0), indices: [0, 4, 7, 3] },
+  { id: "x+", axis: "x", side: 1, normal: vec3(1, 0, 0), indices: [1, 2, 6, 5] },
+  { id: "y-", axis: "y", side: -1, normal: vec3(0, -1, 0), indices: [0, 1, 5, 4] },
+  { id: "y+", axis: "y", side: 1, normal: vec3(0, 1, 0), indices: [3, 7, 6, 2] },
+  { id: "z-", axis: "z", side: -1, normal: vec3(0, 0, -1), indices: [0, 3, 2, 1] },
+  { id: "z+", axis: "z", side: 1, normal: vec3(0, 0, 1), indices: [4, 5, 6, 7] },
+];
+
+const INITIAL_ROTATION = quatNormalize(
+  quatMul(
+    quatFromAxisAngle(vec3(0, 1, 0), 0.62),
+    quatFromAxisAngle(vec3(1, 0, 0), -0.38),
+  ),
+);
+
+const state = {
+  viewportWidth: 1,
+  viewportHeight: 1,
+  rotation: INITIAL_ROTATION,
+  targetRotation: INITIAL_ROTATION,
+  previousAngularVelocity: vec3(),
+  angularVelocity: vec3(),
+  angularAcceleration: vec3(),
+  droplets: [],
+  pointer: {
+    active: false,
+    id: null,
+    arcballVector: null,
+  },
+  stats: {
+    dominantFace: { axis: "y", side: -1 },
+    dropletCount: 0,
+    largestShare: 0,
+    angularSpeed: 0,
+  },
+};
+
+function vec3(x = 0, y = 0, z = 0) {
+  return { x, y, z };
+}
+
+function add(a, b) {
+  return vec3(a.x + b.x, a.y + b.y, a.z + b.z);
+}
+
+function sub(a, b) {
+  return vec3(a.x - b.x, a.y - b.y, a.z - b.z);
+}
+
+function scale(v, s) {
+  return vec3(v.x * s, v.y * s, v.z * s);
+}
+
+function dot(a, b) {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+function cross(a, b) {
+  return vec3(
+    a.y * b.z - a.z * b.y,
+    a.z * b.x - a.x * b.z,
+    a.x * b.y - a.y * b.x,
+  );
+}
+
+function lengthOf(v) {
+  return Math.hypot(v.x, v.y, v.z);
+}
+
+function normalize(v) {
+  const len = lengthOf(v);
+  if (len < 1e-8) {
+    return vec3(0, 0, 0);
+  }
+  return scale(v, 1 / len);
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function smoothSharpness(sharpness, dt) {
+  return 1 - Math.exp(-sharpness * dt);
+}
+
+function quat(x = 0, y = 0, z = 0, w = 1) {
+  return { x, y, z, w };
+}
+
+function quatIdentity() {
+  return quat(0, 0, 0, 1);
+}
+
+function quatNormalize(q) {
+  const len = Math.hypot(q.x, q.y, q.z, q.w);
+  if (len < 1e-8) {
+    return quatIdentity();
+  }
+  return quat(q.x / len, q.y / len, q.z / len, q.w / len);
+}
+
+function quatConjugate(q) {
+  return quat(-q.x, -q.y, -q.z, q.w);
+}
+
+function quatMul(a, b) {
+  return quat(
+    a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+    a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+    a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+    a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
+  );
+}
+
+function quatFromAxisAngle(axis, angle) {
+  const safeAxis = normalize(axis);
+  const halfAngle = angle * 0.5;
+  const s = Math.sin(halfAngle);
+  return quat(safeAxis.x * s, safeAxis.y * s, safeAxis.z * s, Math.cos(halfAngle));
+}
+
+function quatRotateVec(q, v) {
+  const u = vec3(q.x, q.y, q.z);
+  const uv = cross(u, v);
+  const uuv = cross(u, uv);
+  return add(v, add(scale(uv, 2 * q.w), scale(uuv, 2)));
+}
+
+function quatSlerp(a, b, t) {
+  let q1 = quatNormalize(a);
+  let q2 = quatNormalize(b);
+  let cosine = q1.x * q2.x + q1.y * q2.y + q1.z * q2.z + q1.w * q2.w;
+
+  if (cosine < 0) {
+    cosine = -cosine;
+    q2 = quat(-q2.x, -q2.y, -q2.z, -q2.w);
+  }
+
+  if (cosine > 0.9995) {
+    return quatNormalize(quat(
+      lerp(q1.x, q2.x, t),
+      lerp(q1.y, q2.y, t),
+      lerp(q1.z, q2.z, t),
+      lerp(q1.w, q2.w, t),
+    ));
+  }
+
+  const theta = Math.acos(clamp(cosine, -1, 1));
+  const sinTheta = Math.sin(theta);
+  const aScale = Math.sin((1 - t) * theta) / sinTheta;
+  const bScale = Math.sin(t * theta) / sinTheta;
+
+  return quat(
+    q1.x * aScale + q2.x * bScale,
+    q1.y * aScale + q2.y * bScale,
+    q1.z * aScale + q2.z * bScale,
+    q1.w * aScale + q2.w * bScale,
+  );
+}
+
+function quatFromUnitVectors(from, to) {
+  const d = clamp(dot(from, to), -1, 1);
+  if (d < -0.999999) {
+    const axis = Math.abs(from.x) < 0.8 ? normalize(cross(from, vec3(1, 0, 0))) : normalize(cross(from, vec3(0, 1, 0)));
+    return quatFromAxisAngle(axis, Math.PI);
+  }
+
+  const c = cross(from, to);
+  return quatNormalize(quat(c.x, c.y, c.z, 1 + d));
+}
+
+function quatToAxisAngle(q) {
+  const safe = quatNormalize(q);
+  const angle = 2 * Math.acos(clamp(safe.w, -1, 1));
+  const s = Math.sqrt(Math.max(0, 1 - safe.w * safe.w));
+  if (s < 1e-6 || angle < 1e-6) {
+    return { axis: vec3(0, 0, 0), angle: 0 };
+  }
+  return { axis: vec3(safe.x / s, safe.y / s, safe.z / s), angle };
+}
+
+function mapPointerToArcball(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const nx = ((clientX - rect.left) / rect.width) * 2 - 1;
+  const ny = 1 - ((clientY - rect.top) / rect.height) * 2;
+  const radius = 0.92;
+  const x = nx / radius;
+  const y = ny / radius;
+  const lengthSquared = x * x + y * y;
+
+  if (lengthSquared > 1) {
+    const invLength = 1 / Math.sqrt(lengthSquared);
+    return vec3(x * invLength, y * invLength, 0);
+  }
+
+  return vec3(x, y, Math.sqrt(1 - lengthSquared));
+}
+
+function getFaceBasis(face) {
+  switch (face.axis) {
+    case "x":
+      return {
+        normal: vec3(face.side, 0, 0),
+        u: vec3(0, 1, 0),
+        v: vec3(0, 0, 1),
+      };
+    case "y":
+      return {
+        normal: vec3(0, face.side, 0),
+        u: vec3(1, 0, 0),
+        v: vec3(0, 0, 1),
+      };
+    default:
+      return {
+        normal: vec3(0, 0, face.side),
+        u: vec3(1, 0, 0),
+        v: vec3(0, 1, 0),
+      };
+  }
+}
+
+function getFaceCoordinate(face) {
+  return face.side * (CONFIG.halfSize - CONFIG.wallInset);
+}
+
+function facePoint(face, u, v) {
+  const basis = getFaceBasis(face);
+  return add(scale(basis.normal, getFaceCoordinate(face)), add(scale(basis.u, u), scale(basis.v, v)));
+}
+
+function getComponent(point, axis) {
+  return point[axis];
+}
+
+function setComponent(point, axis, value) {
+  point[axis] = value;
+}
+
+function limitForRadius(radius) {
+  return Math.max(0.08, CONFIG.halfSize - CONFIG.wallInset - radius * 0.82);
+}
+
+function dominantFace(acceleration, fallback) {
+  let axis = fallback ? fallback.axis : "y";
+  let side = fallback ? fallback.side : -1;
+  let maxMagnitude = fallback ? Math.abs(acceleration[axis]) : -1;
+
+  for (const candidate of FACE_AXES) {
+    const magnitude = Math.abs(acceleration[candidate]);
+    if (magnitude > maxMagnitude) {
+      maxMagnitude = magnitude;
+      axis = candidate;
+      side = acceleration[candidate] >= 0 ? 1 : -1;
+    }
+  }
+
+  return { axis, side };
+}
+
+function faceEquals(a, b) {
+  return a.axis === b.axis && a.side === b.side;
+}
+
+function faceLabel(face) {
+  return `${face.axis.toUpperCase()}${face.side > 0 ? "+" : "-"}`;
+}
+
+function computeDropRadius(drop) {
+  return CONFIG.baseRadius * Math.cbrt(drop.volume);
+}
+
+function computeInitialDrops() {
+  const droplets = [];
+  const columns = 4;
+  const rows = 3;
+  const startFace = { axis: "y", side: -1 };
+  const spacing = 0.42;
+
+  for (let index = 0; index < 12; index += 1) {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    const u = (column - (columns - 1) * 0.5) * spacing + randomRange(-0.08, 0.08);
+    const v = (row - (rows - 1) * 0.5) * spacing + randomRange(-0.08, 0.08);
+
+    droplets.push({
+      id: `drop-${index}`,
+      face: { ...startFace },
+      u,
+      v,
+      du: randomRange(-0.18, 0.18),
+      dv: randomRange(-0.18, 0.18),
+      volume: randomRange(0.68, 1.18),
+    });
+  }
+
+  return droplets;
+}
+
+function resetDrops() {
+  state.droplets = computeInitialDrops();
+}
+
+function scatterDrops() {
+  const gravityLocal = quatRotateVec(quatConjugate(state.rotation), WORLD_GRAVITY);
+  const supportFace = dominantFace(gravityLocal, { axis: "y", side: -1 });
+
+  state.droplets.forEach((drop, index) => {
+    const radius = computeDropRadius(drop);
+    const limit = limitForRadius(radius);
+    drop.face = { ...supportFace };
+    drop.u = randomRange(-limit * 0.88, limit * 0.88);
+    drop.v = randomRange(-limit * 0.88, limit * 0.88);
+    drop.du = randomRange(-1.6, 1.6) + (index % 2 === 0 ? 0.7 : -0.7);
+    drop.dv = randomRange(-1.2, 1.2);
+  });
+}
+
+function randomRange(min, max) {
+  return min + Math.random() * (max - min);
+}
+
+function computeDropVelocity3D(drop) {
+  const basis = getFaceBasis(drop.face);
+  return add(scale(basis.u, drop.du), scale(basis.v, drop.dv));
+}
+
+function computeEffectiveAcceleration(position, velocity, gravityLocal) {
+  const omega = state.angularVelocity;
+  const alpha = state.angularAcceleration;
+  const tangential = scale(cross(alpha, position), -1);
+  const centrifugal = scale(cross(omega, cross(omega, position)), -1);
+  const coriolis = scale(cross(omega, velocity), -2);
+  return add(gravityLocal, add(tangential, add(centrifugal, coriolis)));
+}
+
+function canSwitchFace(position, nextFace, radius) {
+  const threshold = CONFIG.halfSize - CONFIG.wallInset - radius * 0.7 - CONFIG.faceSwitchThreshold;
+  return getComponent(position, nextFace.axis) * nextFace.side > threshold;
+}
+
+function switchDropFace(drop, nextFace, position, velocity) {
+  const basis = getFaceBasis(nextFace);
+  const radius = computeDropRadius(drop);
+  const limit = limitForRadius(radius);
+
+  drop.face = { ...nextFace };
+  drop.u = clamp(dot(position, basis.u), -limit, limit);
+  drop.v = clamp(dot(position, basis.v), -limit, limit);
+  drop.du = dot(velocity, basis.u) * 0.88;
+  drop.dv = dot(velocity, basis.v) * 0.88;
+}
+
+function applySurfaceAttraction(dt) {
+  for (let i = 0; i < state.droplets.length; i += 1) {
+    const a = state.droplets[i];
+    for (let j = i + 1; j < state.droplets.length; j += 1) {
+      const b = state.droplets[j];
+      if (!faceEquals(a.face, b.face)) {
+        continue;
+      }
+
+      const dx = b.u - a.u;
+      const dy = b.v - a.v;
+      const distance = Math.hypot(dx, dy);
+      const radiusSum = computeDropRadius(a) + computeDropRadius(b);
+      const attractionRadius = radiusSum * 2.6;
+
+      if (distance < 1e-5 || distance > attractionRadius) {
+        continue;
+      }
+
+      const pull = (1 - distance / attractionRadius) * CONFIG.attractionStrength * dt;
+      const nx = dx / distance;
+      const ny = dy / distance;
+      const totalVolume = a.volume + b.volume;
+      const aShare = b.volume / totalVolume;
+      const bShare = a.volume / totalVolume;
+
+      a.du += nx * pull * aShare;
+      a.dv += ny * pull * aShare;
+      b.du -= nx * pull * bShare;
+      b.dv -= ny * pull * bShare;
+    }
+  }
+}
+
+function updateDrops(dt) {
+  const gravityLocal = quatRotateVec(quatConjugate(state.rotation), WORLD_GRAVITY);
+
+  applySurfaceAttraction(dt);
+
+  for (const drop of state.droplets) {
+    let position = facePoint(drop.face, drop.u, drop.v);
+    let velocity = computeDropVelocity3D(drop);
+    let acceleration = computeEffectiveAcceleration(position, velocity, gravityLocal);
+    const nextFace = dominantFace(acceleration, drop.face);
+
+    if (!faceEquals(drop.face, nextFace) && canSwitchFace(position, nextFace, computeDropRadius(drop))) {
+      switchDropFace(drop, nextFace, position, velocity);
+      position = facePoint(drop.face, drop.u, drop.v);
+      velocity = computeDropVelocity3D(drop);
+      acceleration = computeEffectiveAcceleration(position, velocity, gravityLocal);
+    }
+
+    const basis = getFaceBasis(drop.face);
+    drop.du = (drop.du + dot(acceleration, basis.u) * dt) * Math.exp(-CONFIG.surfaceDrag * dt);
+    drop.dv = (drop.dv + dot(acceleration, basis.v) * dt) * Math.exp(-CONFIG.surfaceDrag * dt);
+
+    drop.u += drop.du * dt;
+    drop.v += drop.dv * dt;
+
+    const radius = computeDropRadius(drop);
+    const limit = limitForRadius(radius);
+
+    if (drop.u < -limit) {
+      drop.u = -limit;
+      if (drop.du < 0) {
+        drop.du *= -CONFIG.edgeBounce;
+        drop.dv *= CONFIG.edgeSlideDamping;
+      }
+    } else if (drop.u > limit) {
+      drop.u = limit;
+      if (drop.du > 0) {
+        drop.du *= -CONFIG.edgeBounce;
+        drop.dv *= CONFIG.edgeSlideDamping;
+      }
+    }
+
+    if (drop.v < -limit) {
+      drop.v = -limit;
+      if (drop.dv < 0) {
+        drop.dv *= -CONFIG.edgeBounce;
+        drop.du *= CONFIG.edgeSlideDamping;
+      }
+    } else if (drop.v > limit) {
+      drop.v = limit;
+      if (drop.dv > 0) {
+        drop.dv *= -CONFIG.edgeBounce;
+        drop.du *= CONFIG.edgeSlideDamping;
+      }
+    }
+  }
+
+  mergeDrops();
+  updateStats();
+}
+
+function mergeDrops() {
+  for (let i = state.droplets.length - 1; i >= 0; i -= 1) {
+    for (let j = i - 1; j >= 0; j -= 1) {
+      const a = state.droplets[i];
+      const b = state.droplets[j];
+      if (!faceEquals(a.face, b.face)) {
+        continue;
+      }
+
+      const distance = Math.hypot(a.u - b.u, a.v - b.v);
+      const mergeDistance = (computeDropRadius(a) + computeDropRadius(b)) * CONFIG.mergeFactor;
+      if (distance > mergeDistance) {
+        continue;
+      }
+
+      const totalVolume = a.volume + b.volume;
+      const merged = {
+        id: `${b.id}+${a.id}`,
+        face: { ...a.face },
+        u: (a.u * a.volume + b.u * b.volume) / totalVolume,
+        v: (a.v * a.volume + b.v * b.volume) / totalVolume,
+        du: (a.du * a.volume + b.du * b.volume) / totalVolume,
+        dv: (a.dv * a.volume + b.dv * b.volume) / totalVolume,
+        volume: totalVolume,
+      };
+
+      state.droplets.splice(i, 1);
+      state.droplets.splice(j, 1, merged);
+      break;
+    }
+  }
+}
+
+function updateRotation(dt) {
+  const previousRotation = state.rotation;
+  state.rotation = quatSlerp(state.rotation, state.targetRotation, smoothSharpness(CONFIG.followSharpness, dt));
+
+  const delta = quatMul(state.rotation, quatConjugate(previousRotation));
+  const rotationDelta = quatToAxisAngle(delta);
+  let deltaAngle = rotationDelta.angle;
+  if (deltaAngle > Math.PI) {
+    deltaAngle -= Math.PI * 2;
+  }
+
+  const omegaWorld = rotationDelta.angle > 0 ? scale(rotationDelta.axis, deltaAngle / Math.max(dt, 1e-5)) : vec3();
+  state.angularVelocity = quatRotateVec(quatConjugate(state.rotation), omegaWorld);
+  state.angularAcceleration = scale(sub(state.angularVelocity, state.previousAngularVelocity), 1 / Math.max(dt, 1e-5));
+  state.previousAngularVelocity = state.angularVelocity;
+}
+
+function updateStats() {
+  state.stats.dropletCount = state.droplets.length;
+  if (state.droplets.length === 0) {
+    state.stats.largestShare = 0;
+    state.stats.dominantFace = { axis: "y", side: -1 };
+    state.stats.angularSpeed = lengthOf(state.angularVelocity);
+    metricCount.textContent = "0";
+    metricLargest.textContent = "0%";
+    metricFace.textContent = "Y-";
+    metricSpin.textContent = state.stats.angularSpeed.toFixed(2);
+    return;
+  }
+
+  const totalVolume = state.droplets.reduce((sum, drop) => sum + drop.volume, 0);
+  const largest = state.droplets.reduce((best, drop) => (drop.volume > best.volume ? drop : best), state.droplets[0]);
+
+  state.stats.largestShare = largest ? (largest.volume / totalVolume) * 100 : 0;
+  state.stats.dominantFace = largest ? largest.face : { axis: "y", side: -1 };
+  state.stats.angularSpeed = lengthOf(state.angularVelocity);
+
+  metricCount.textContent = `${state.stats.dropletCount}`;
+  metricLargest.textContent = `${state.stats.largestShare.toFixed(0)}%`;
+  metricFace.textContent = faceLabel(state.stats.dominantFace);
+  metricSpin.textContent = state.stats.angularSpeed.toFixed(2);
+}
+
+function resizeCanvas() {
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+  canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  state.viewportWidth = rect.width;
+  state.viewportHeight = rect.height;
+}
+
+function project(worldPoint) {
+  const depth = CONFIG.cameraDistance - worldPoint.z;
+  const perspective = (Math.min(state.viewportWidth, state.viewportHeight) * CONFIG.projectionScale) / depth;
+  return {
+    x: state.viewportWidth * 0.5 + worldPoint.x * perspective,
+    y: state.viewportHeight * 0.54 - worldPoint.y * perspective,
+    depth,
+    scale: perspective,
+  };
+}
+
+function drawBackground() {
+  const width = state.viewportWidth;
+  const height = state.viewportHeight;
+  const gradient = ctx.createRadialGradient(width * 0.5, height * 0.3, 30, width * 0.5, height * 0.5, width * 0.65);
+  gradient.addColorStop(0, "rgba(164, 228, 255, 0.10)");
+  gradient.addColorStop(0.45, "rgba(37, 101, 128, 0.06)");
+  gradient.addColorStop(1, "rgba(4, 13, 17, 0)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, height);
+}
+
+function renderCube() {
+  const worldVertices = CUBE_VERTICES.map((vertex) => quatRotateVec(state.rotation, vertex));
+  const projectedVertices = worldVertices.map(project);
+  const cameraPosition = vec3(0, 0, CONFIG.cameraDistance);
+
+  const faces = CUBE_FACES.map((face) => {
+    const points = face.indices.map((index) => projectedVertices[index]);
+    const center = scale(face.indices.reduce((sum, index) => add(sum, worldVertices[index]), vec3()), 1 / face.indices.length);
+    const normal = quatRotateVec(state.rotation, face.normal);
+    const toCamera = normalize(sub(cameraPosition, center));
+    const facing = dot(normal, toCamera) > 0;
+    return {
+      ...face,
+      center,
+      normal,
+      facing,
+      points,
+      drawDepth: center.z,
+    };
+  }).sort((a, b) => a.drawDepth - b.drawDepth);
+
+  for (const face of faces) {
+    drawFace(face, false);
+  }
+
+  renderDrops();
+
+  for (const face of faces) {
+    drawFace(face, true);
+  }
+}
+
+function drawFace(face, frontPass) {
+  const alpha = frontPass ? (face.facing ? 0.12 : 0.05) : (face.facing ? 0.04 : 0.07);
+  const strokeAlpha = frontPass ? (face.facing ? 0.82 : 0.18) : (face.facing ? 0.18 : 0.3);
+
+  ctx.beginPath();
+  ctx.moveTo(face.points[0].x, face.points[0].y);
+  for (let index = 1; index < face.points.length; index += 1) {
+    ctx.lineTo(face.points[index].x, face.points[index].y);
+  }
+  ctx.closePath();
+
+  ctx.fillStyle = `rgba(186, 233, 255, ${alpha})`;
+  ctx.fill();
+
+  ctx.strokeStyle = `rgba(206, 244, 255, ${strokeAlpha})`;
+  ctx.lineWidth = frontPass ? (face.facing ? 1.45 : 0.9) : 0.8;
+  ctx.stroke();
+}
+
+function renderDrops() {
+  const cameraPosition = vec3(0, 0, CONFIG.cameraDistance);
+  const drawableDrops = state.droplets.map((drop) => buildDropVisual(drop, cameraPosition)).sort((a, b) => a.depth - b.depth);
+
+  for (const visual of drawableDrops) {
+    drawDrop(visual);
+  }
+}
+
+function buildDropVisual(drop, cameraPosition) {
+  const basis = getFaceBasis(drop.face);
+  const localCenter = sub(facePoint(drop.face, drop.u, drop.v), scale(basis.normal, CONFIG.interiorOffset));
+  const speed = Math.hypot(drop.du, drop.dv);
+  const baseRadius = computeDropRadius(drop);
+  const stretch = clamp(1 + speed * 0.085, 1, 1.38);
+  const rxLocal = baseRadius * stretch;
+  const ryLocal = baseRadius / Math.sqrt(stretch);
+
+  const tangent = speed > 0.02 ? normalize(add(scale(basis.u, drop.du), scale(basis.v, drop.dv))) : basis.u;
+  const bitangent = normalize(cross(basis.normal, tangent));
+  const centerWorld = quatRotateVec(state.rotation, localCenter);
+  const tangentWorld = quatRotateVec(state.rotation, add(localCenter, scale(tangent, rxLocal)));
+  const bitangentWorld = quatRotateVec(state.rotation, add(localCenter, scale(bitangent, ryLocal)));
+  const screenCenter = project(centerWorld);
+  const screenTangent = project(tangentWorld);
+  const screenBitangent = project(bitangentWorld);
+  const faceNormalWorld = quatRotateVec(state.rotation, basis.normal);
+  const toCamera = normalize(sub(cameraPosition, centerWorld));
+  const faceVisibility = clamp(dot(faceNormalWorld, toCamera) * 0.5 + 0.55, 0.34, 1);
+
+  return {
+    centerX: screenCenter.x,
+    centerY: screenCenter.y,
+    radiusX: Math.max(2, Math.hypot(screenTangent.x - screenCenter.x, screenTangent.y - screenCenter.y)),
+    radiusY: Math.max(2, Math.hypot(screenBitangent.x - screenCenter.x, screenBitangent.y - screenCenter.y)),
+    angle: Math.atan2(screenTangent.y - screenCenter.y, screenTangent.x - screenCenter.x),
+    depth: centerWorld.z,
+    alpha: faceVisibility,
+  };
+}
+
+function drawDrop(drop) {
+  ctx.save();
+  ctx.translate(drop.centerX, drop.centerY);
+  ctx.rotate(drop.angle);
+
+  ctx.beginPath();
+  ctx.ellipse(0, 0, drop.radiusX * 1.06, drop.radiusY * 1.12, 0, 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(4, 16, 22, ${0.14 * drop.alpha})`;
+  ctx.fill();
+
+  const gradient = ctx.createRadialGradient(-drop.radiusX * 0.32, -drop.radiusY * 0.4, drop.radiusX * 0.08, 0, 0, Math.max(drop.radiusX, drop.radiusY));
+  gradient.addColorStop(0, `rgba(255, 255, 255, ${0.95 * drop.alpha})`);
+  gradient.addColorStop(0.22, `rgba(179, 246, 255, ${0.9 * drop.alpha})`);
+  gradient.addColorStop(0.68, `rgba(77, 184, 221, ${0.72 * drop.alpha})`);
+  gradient.addColorStop(1, `rgba(23, 78, 111, ${0.16 * drop.alpha})`);
+
+  ctx.shadowColor = `rgba(126, 231, 255, ${0.34 * drop.alpha})`;
+  ctx.shadowBlur = 18;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, drop.radiusX, drop.radiusY, 0, 0, Math.PI * 2);
+  ctx.fillStyle = gradient;
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+  ctx.beginPath();
+  ctx.ellipse(-drop.radiusX * 0.12, -drop.radiusY * 0.16, drop.radiusX * 0.36, drop.radiusY * 0.3, -0.2, 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(255, 255, 255, ${0.28 * drop.alpha})`;
+  ctx.fill();
+
+  ctx.strokeStyle = `rgba(221, 249, 255, ${0.42 * drop.alpha})`;
+  ctx.lineWidth = 1.1;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, drop.radiusX, drop.radiusY, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function renderFrame() {
+  ctx.clearRect(0, 0, state.viewportWidth, state.viewportHeight);
+  drawBackground();
+  renderCube();
+}
+
+function update(dt) {
+  updateRotation(dt);
+  updateDrops(dt);
+}
+
+function animationFrame(now) {
+  if (!animationFrame.lastTime) {
+    animationFrame.lastTime = now;
+  }
+
+  const dt = Math.min(CONFIG.maxDt, (now - animationFrame.lastTime) / 1000);
+  animationFrame.lastTime = now;
+
+  update(dt);
+  renderFrame();
+  requestAnimationFrame(animationFrame);
+}
+
+function onPointerDown(event) {
+  state.pointer.active = true;
+  state.pointer.id = event.pointerId;
+  state.pointer.arcballVector = mapPointerToArcball(event.clientX, event.clientY);
+  canvas.classList.add("dragging");
+  canvas.setPointerCapture(event.pointerId);
+}
+
+function onPointerMove(event) {
+  if (!state.pointer.active || event.pointerId !== state.pointer.id) {
+    return;
+  }
+
+  const nextVector = mapPointerToArcball(event.clientX, event.clientY);
+  const deltaRotation = quatFromUnitVectors(state.pointer.arcballVector, nextVector);
+  state.targetRotation = quatNormalize(quatMul(deltaRotation, state.targetRotation));
+  state.pointer.arcballVector = nextVector;
+}
+
+function onPointerUp(event) {
+  if (event.pointerId !== state.pointer.id) {
+    return;
+  }
+
+  state.pointer.active = false;
+  state.pointer.id = null;
+  state.pointer.arcballVector = null;
+  canvas.classList.remove("dragging");
+}
+
+function addEventListeners() {
+  window.addEventListener("resize", resizeCanvas);
+  canvas.addEventListener("pointerdown", onPointerDown);
+  canvas.addEventListener("pointermove", onPointerMove);
+  canvas.addEventListener("pointerup", onPointerUp);
+  canvas.addEventListener("pointercancel", onPointerUp);
+  resetButton.addEventListener("click", resetDrops);
+  scatterButton.addEventListener("click", scatterDrops);
+}
+
+function init() {
+  resizeCanvas();
+  addEventListeners();
+  resetDrops();
+  updateStats();
+  requestAnimationFrame(animationFrame);
+}
+
+init();
+
+
+

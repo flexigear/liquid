@@ -2,23 +2,33 @@
 
 `Liquid` is a game project about physically credible water motion inside transparent 3D containers.
 
-The current target is a first playable interaction prototype:
+The current playable target is a browser-based interaction prototype with:
 
 - one transparent square glass container
 - several water drops inside the container
 - trackball-style rotation control
-- drops that slide, collide with glass, merge into larger drops, and settle with visible inertia
+- droplets that slide on the inner glass, react to angular motion, merge into larger drops, and settle with visible inertia
 
 ## Current Status
 
-The repository is in pre-engine bootstrap stage. Product direction, prototype scope, and current design conclusions are already captured in the memory system.
+The repository now includes a dependency-free web prototype for the square-glass-container MVP, alongside the layered memory system that tracks product and simulation decisions.
 
 ## Repository Layout
 
 - [MEMORY.md](/D:/myWorkSpace/appProjects/liquid/MEMORY.md): entry point to the layered memory system
 - [memory/](/D:/myWorkSpace/appProjects/liquid/memory): long-lived project memory, research, design, and active context
-- [scripts/](/D:/myWorkSpace/appProjects/liquid/scripts): helper scripts, including task-based memory lookup
-- [prototype/](/D:/myWorkSpace/appProjects/liquid/prototype): neutral workspace for future prototype implementation
+- [scripts/](/D:/myWorkSpace/appProjects/liquid/scripts): helper scripts for memory lookup and local prototype serving
+- [prototype/engine/web](/D:/myWorkSpace/appProjects/liquid/prototype/engine/web): current minimal testable prototype
+
+## Run The Prototype
+
+Open [index.html](/D:/myWorkSpace/appProjects/liquid/prototype/engine/web/index.html) directly in a browser, or run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run-web-prototype.ps1
+```
+
+Then open `http://localhost:8123`.
 
 ## Memory Workflow
 
@@ -35,4 +45,4 @@ powershell -ExecutionPolicy Bypass -File .\scripts\get-memory.ps1 -Task "fluid p
 
 ## Next Milestone
 
-Choose the first engine and simulation stack, then build a convincing square-glass-container prototype.
+Push the prototype closer to convincing liquid behavior by refining face transitions, wall adhesion, and visual deformation, or move to a heavier simulation stack when the browser model stops being informative.
