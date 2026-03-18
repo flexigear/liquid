@@ -1,0 +1,47 @@
+﻿# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Logs and temp files
+*.log
+*.tmp
+*.temp
+
+# Local env
+.env
+.env.*
+
+# Python helpers
+__pycache__/
+*.pyc
+
+# PowerShell and shell noise
+*.ps1xml
+
+# Build outputs
+dist/
+build/
+out/
+
+# Future Unity prototype project under prototype/unity
+/prototype/unity/[Ll]ibrary/
+/prototype/unity/[Tt]emp/
+/prototype/unity/[Oo]bj/
+/prototype/unity/[Bb]uild/
+/prototype/unity/[Bb]uilds/
+/prototype/unity/[Ll]ogs/
+/prototype/unity/[Uu]serSettings/
+/prototype/unity/MemoryCaptures/
+
+# Future Godot prototype project under prototype/godot
+/prototype/godot/.godot/
+/prototype/godot/export_presets.cfg

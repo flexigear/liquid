@@ -13,6 +13,8 @@
 - The player manipulates the container, not the water directly.
 - The first milestone is not a level; it is a convincing liquid interaction prototype.
 - A layered memory system is now part of the project foundation.
+- The Git repository has been initialized and pushed to GitHub.
+- The repository now includes baseline setup files and a neutral prototype workspace.
 
 ## Open Questions
 
