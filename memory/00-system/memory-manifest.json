@@ -1,0 +1,60 @@
+﻿{
+  "files": [
+    {
+      "path": "memory/01-foundation/project-brief.md",
+      "layer": "foundation",
+      "priority": 100,
+      "tags": ["project", "identity", "fantasy", "constraints"],
+      "summary": "Core project identity, fantasy, constraints, and non-negotiables."
+    },
+    {
+      "path": "memory/10-product/product-vision.md",
+      "layer": "product",
+      "priority": 90,
+      "tags": ["product", "vision", "feel", "experience", "differentiation"],
+      "summary": "Desired player experience and what should make the game distinct."
+    },
+    {
+      "path": "memory/11-research/reference-games.md",
+      "layer": "research",
+      "priority": 50,
+      "tags": ["research", "references", "mercury", "vessel", "fluidity", "puddle", "from dust"],
+      "summary": "Reference games, their relevance, and what to borrow or avoid."
+    },
+    {
+      "path": "memory/20-design/core-gameplay-loop.md",
+      "layer": "design",
+      "priority": 85,
+      "tags": ["design", "gameplay", "container", "level", "merge", "goal", "flow"],
+      "summary": "Core loop and one-container-per-level gameplay structure."
+    },
+    {
+      "path": "memory/20-design/physics-authenticity-principles.md",
+      "layer": "design",
+      "priority": 95,
+      "tags": ["design", "physics", "fluid", "water", "authenticity", "surface tension", "wetting", "glass"],
+      "summary": "Physics realism goals, non-negotiable phenomena, and acceptable game-side simplifications."
+    },
+    {
+      "path": "memory/30-prototype/mvp-square-glass-container.md",
+      "layer": "prototype",
+      "priority": 92,
+      "tags": ["prototype", "mvp", "glass", "cube", "water drops", "merge", "collision"],
+      "summary": "The first playable prototype scope and success criteria."
+    },
+    {
+      "path": "memory/30-prototype/trackball-control.md",
+      "layer": "prototype",
+      "priority": 88,
+      "tags": ["prototype", "input", "trackball", "rotation", "inertia", "control"],
+      "summary": "Trackball container control model and how it should feed fluid simulation."
+    },
+    {
+      "path": "memory/90-active/current-context.md",
+      "layer": "active",
+      "priority": 110,
+      "tags": ["active", "current", "next", "prototype", "physics", "input"],
+      "summary": "Current working context, open questions, and next tasks."
+    }
+  ]
+}
