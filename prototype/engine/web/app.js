@@ -13,16 +13,24 @@ const CONFIG = {
   wallInset: 0.07,
   baseRadius: 0.135,
   gravityStrength: 8.5,
-  surfaceDrag: 2.6,
+  surfaceDrag: 6.2,
+  staticSlipThreshold: 1.5,
+  kineticSlipThreshold: 0.72,
+  settleSpeedThreshold: 0.11,
   edgeBounce: 0.22,
   edgeSlideDamping: 0.9,
-  attractionStrength: 7.5,
+  attractionStrength: 5.2,
   faceSwitchThreshold: 0.18,
-  faceSwitchBias: 1.35,
-  edgeTransferMargin: 0.028,
-  transitionDuration: 0.11,
+  faceSwitchBias: 2.4,
+  edgeTransferMargin: 0.04,
+  transitionDuration: 0.13,
   mergeFactor: 0.92,
-  followSharpness: 9,
+  followSharpness: 7.2,
+  supportGravitySharpness: 4.6,
+  angularVelocityLimit: 4.8,
+  angularAccelerationLimit: 14,
+  angularInertiaScale: 0.06,
+  maxSurfaceAcceleration: 5.4,
   interiorOffset: 0.028,
   maxDt: 1 / 30,
   cameraDistance: 4.8,
@@ -66,6 +74,7 @@ const state = {
   previousAngularVelocity: vec3(),
   angularVelocity: vec3(),
   angularAcceleration: vec3(),
+  supportGravityLocal: quatRotateVec(quatConjugate(INITIAL_ROTATION), WORLD_GRAVITY),
   droplets: [],
   pointer: {
     active: false,
@@ -118,6 +127,14 @@ function normalize(v) {
     return vec3(0, 0, 0);
   }
   return scale(v, 1 / len);
+}
+
+function clampVectorMagnitude(v, maxLength) {
+  const len = lengthOf(v);
+  if (len <= maxLength || len < 1e-8) {
+    return v;
+  }
+  return scale(v, maxLength / len);
 }
 
 function clamp(value, min, max) {
@@ -365,6 +382,7 @@ function computeInitialDrops() {
 
 function resetDrops() {
   state.droplets = computeInitialDrops();
+  state.supportGravityLocal = quatRotateVec(quatConjugate(state.rotation), WORLD_GRAVITY);
 }
 
 function scatterDrops() {
@@ -392,6 +410,11 @@ function computeDropVelocity3D(drop) {
   return add(scale(basis.u, drop.du), scale(basis.v, drop.dv));
 }
 
+function computePinningThreshold(drop, baseThreshold) {
+  const sizeFactor = Math.max(0.8, Math.cbrt(drop.volume));
+  return baseThreshold / sizeFactor;
+}
+
 function getMotionBasisFromVelocity(face, velocity) {
   const basis = getFaceBasis(face);
   const speed = lengthOf(velocity);
@@ -405,13 +428,17 @@ function getMotionBasisFromVelocity(face, velocity) {
   };
 }
 
-function computeEffectiveAcceleration(position, velocity, gravityLocal) {
-  const omega = state.angularVelocity;
-  const alpha = state.angularAcceleration;
+function updateSupportGravity(gravityLocal, dt) {
+  const blend = smoothSharpness(CONFIG.supportGravitySharpness, dt);
+  const blended = mixVec3(state.supportGravityLocal, gravityLocal, blend);
+  const magnitude = lengthOf(blended);
+  state.supportGravityLocal = magnitude > 1e-5 ? scale(blended, CONFIG.gravityStrength / magnitude) : gravityLocal;
+}
+
+function computeEffectiveAcceleration(position, velocity, supportGravityLocal) {
+  const alpha = scale(state.angularAcceleration, CONFIG.angularInertiaScale);
   const tangential = scale(cross(alpha, position), -1);
-  const centrifugal = scale(cross(omega, cross(omega, position)), -1);
-  const coriolis = scale(cross(omega, velocity), -2);
-  return add(gravityLocal, add(tangential, add(centrifugal, coriolis)));
+  return clampVectorMagnitude(add(supportGravityLocal, tangential), CONFIG.maxSurfaceAcceleration);
 }
 
 function canSwitchFace(drop, position, velocity, nextFace) {
@@ -532,7 +559,7 @@ function applySurfaceAttraction(dt) {
     const a = state.droplets[i];
     for (let j = i + 1; j < state.droplets.length; j += 1) {
       const b = state.droplets[j];
-      if (!faceEquals(a.face, b.face)) {
+      if (a.transition || b.transition || !faceEquals(a.face, b.face)) {
         continue;
       }
 
@@ -563,25 +590,43 @@ function applySurfaceAttraction(dt) {
 
 function updateDrops(dt) {
   const gravityLocal = quatRotateVec(quatConjugate(state.rotation), WORLD_GRAVITY);
+  updateSupportGravity(gravityLocal, dt);
 
   applySurfaceAttraction(dt);
 
   for (const drop of state.droplets) {
     let position = facePoint(drop.face, drop.u, drop.v);
     let velocity = computeDropVelocity3D(drop);
-    let acceleration = computeEffectiveAcceleration(position, velocity, gravityLocal);
-    const nextFace = dominantFace(acceleration, drop.face);
+    let acceleration = computeEffectiveAcceleration(position, velocity, state.supportGravityLocal);
+    const nextFace = dominantFace(state.supportGravityLocal, drop.face);
 
     if (!faceEquals(drop.face, nextFace) && canSwitchFace(drop, position, velocity, nextFace)) {
       switchDropFace(drop, nextFace, position, velocity);
       position = facePoint(drop.face, drop.u, drop.v);
       velocity = computeDropVelocity3D(drop);
-      acceleration = computeEffectiveAcceleration(position, velocity, gravityLocal);
+      acceleration = computeEffectiveAcceleration(position, velocity, state.supportGravityLocal);
     }
 
     const basis = getFaceBasis(drop.face);
-    drop.du = (drop.du + dot(acceleration, basis.u) * dt) * Math.exp(-CONFIG.surfaceDrag * dt);
-    drop.dv = (drop.dv + dot(acceleration, basis.v) * dt) * Math.exp(-CONFIG.surfaceDrag * dt);
+    const surfaceAx = dot(acceleration, basis.u);
+    const surfaceAy = dot(acceleration, basis.v);
+    const surfaceAcceleration = Math.hypot(surfaceAx, surfaceAy);
+    const surfaceSpeed = Math.hypot(drop.du, drop.dv);
+    const startThreshold = computePinningThreshold(drop, CONFIG.staticSlipThreshold);
+    const stopThreshold = computePinningThreshold(drop, CONFIG.kineticSlipThreshold);
+
+    if (surfaceSpeed < CONFIG.settleSpeedThreshold && surfaceAcceleration < startThreshold) {
+      drop.du = 0;
+      drop.dv = 0;
+    } else {
+      drop.du = (drop.du + surfaceAx * dt) * Math.exp(-CONFIG.surfaceDrag * dt);
+      drop.dv = (drop.dv + surfaceAy * dt) * Math.exp(-CONFIG.surfaceDrag * dt);
+
+      if (Math.hypot(drop.du, drop.dv) < CONFIG.settleSpeedThreshold && surfaceAcceleration < stopThreshold) {
+        drop.du = 0;
+        drop.dv = 0;
+      }
+    }
 
     drop.u += drop.du * dt;
     drop.v += drop.dv * dt;
@@ -669,8 +714,8 @@ function updateRotation(dt) {
   }
 
   const omegaWorld = rotationDelta.angle > 0 ? scale(rotationDelta.axis, deltaAngle / Math.max(dt, 1e-5)) : vec3();
-  state.angularVelocity = quatRotateVec(quatConjugate(state.rotation), omegaWorld);
-  state.angularAcceleration = scale(sub(state.angularVelocity, state.previousAngularVelocity), 1 / Math.max(dt, 1e-5));
+  state.angularVelocity = clampVectorMagnitude(quatRotateVec(quatConjugate(state.rotation), omegaWorld), CONFIG.angularVelocityLimit);
+  state.angularAcceleration = clampVectorMagnitude(scale(sub(state.angularVelocity, state.previousAngularVelocity), 1 / Math.max(dt, 1e-5)), CONFIG.angularAccelerationLimit);
   state.previousAngularVelocity = state.angularVelocity;
 }
 
@@ -961,6 +1006,11 @@ function init() {
 }
 
 init();
+
+
+
+
+
 
 
 
