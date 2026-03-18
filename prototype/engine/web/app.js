@@ -18,6 +18,9 @@ const CONFIG = {
   edgeSlideDamping: 0.9,
   attractionStrength: 7.5,
   faceSwitchThreshold: 0.18,
+  faceSwitchBias: 1.35,
+  edgeTransferMargin: 0.028,
+  transitionDuration: 0.11,
   mergeFactor: 0.92,
   followSharpness: 9,
   interiorOffset: 0.028,
@@ -123,6 +126,19 @@ function clamp(value, min, max) {
 
 function lerp(a, b, t) {
   return a + (b - a) * t;
+}
+
+function mixVec3(a, b, t) {
+  return vec3(
+    lerp(a.x, b.x, t),
+    lerp(a.y, b.y, t),
+    lerp(a.z, b.z, t),
+  );
+}
+
+function smoothstep01(value) {
+  const t = clamp(value, 0, 1);
+  return t * t * (3 - 2 * t);
 }
 
 function smoothSharpness(sharpness, dt) {
@@ -289,14 +305,18 @@ function limitForRadius(radius) {
 function dominantFace(acceleration, fallback) {
   let axis = fallback ? fallback.axis : "y";
   let side = fallback ? fallback.side : -1;
-  let maxMagnitude = fallback ? Math.abs(acceleration[axis]) : -1;
+  let bestMagnitude = fallback ? Math.abs(acceleration[axis]) : -1;
 
   for (const candidate of FACE_AXES) {
     const magnitude = Math.abs(acceleration[candidate]);
-    if (magnitude > maxMagnitude) {
-      maxMagnitude = magnitude;
+    const candidateSide = acceleration[candidate] >= 0 ? 1 : -1;
+    const sameFace = fallback && candidate === axis && candidateSide === side;
+    const requiredGain = sameFace ? 0 : CONFIG.faceSwitchBias;
+
+    if (magnitude > bestMagnitude + requiredGain) {
+      bestMagnitude = magnitude;
       axis = candidate;
-      side = acceleration[candidate] >= 0 ? 1 : -1;
+      side = candidateSide;
     }
   }
 
@@ -336,6 +356,7 @@ function computeInitialDrops() {
       du: randomRange(-0.18, 0.18),
       dv: randomRange(-0.18, 0.18),
       volume: randomRange(0.68, 1.18),
+      transition: null,
     });
   }
 
@@ -358,6 +379,7 @@ function scatterDrops() {
     drop.v = randomRange(-limit * 0.88, limit * 0.88);
     drop.du = randomRange(-1.6, 1.6) + (index % 2 === 0 ? 0.7 : -0.7);
     drop.dv = randomRange(-1.2, 1.2);
+    drop.transition = null;
   });
 }
 
@@ -370,6 +392,19 @@ function computeDropVelocity3D(drop) {
   return add(scale(basis.u, drop.du), scale(basis.v, drop.dv));
 }
 
+function getMotionBasisFromVelocity(face, velocity) {
+  const basis = getFaceBasis(face);
+  const speed = lengthOf(velocity);
+  const tangent = speed > 0.02 ? normalize(velocity) : basis.u;
+  const bitangent = normalize(cross(basis.normal, tangent));
+
+  return {
+    basis,
+    tangent,
+    bitangent,
+  };
+}
+
 function computeEffectiveAcceleration(position, velocity, gravityLocal) {
   const omega = state.angularVelocity;
   const alpha = state.angularAcceleration;
@@ -379,21 +414,66 @@ function computeEffectiveAcceleration(position, velocity, gravityLocal) {
   return add(gravityLocal, add(tangential, add(centrifugal, coriolis)));
 }
 
-function canSwitchFace(position, nextFace, radius) {
-  const threshold = CONFIG.halfSize - CONFIG.wallInset - radius * 0.7 - CONFIG.faceSwitchThreshold;
-  return getComponent(position, nextFace.axis) * nextFace.side > threshold;
+function canSwitchFace(drop, position, velocity, nextFace) {
+  const radius = computeDropRadius(drop);
+  const limit = limitForRadius(radius);
+  const edgeThreshold = limit - CONFIG.edgeTransferMargin;
+  const edgeCoordinate = getComponent(position, nextFace.axis) * nextFace.side;
+  const approachVelocity = dot(velocity, getFaceBasis(nextFace).normal);
+
+  return edgeCoordinate >= edgeThreshold && approachVelocity > -0.02;
+}
+
+function buildTransitionState(previousFace, previousU, previousV, previousVelocity, nextFace, nextU, nextV, nextVelocity) {
+  const previousMotion = getMotionBasisFromVelocity(previousFace, previousVelocity);
+  const nextMotion = getMotionBasisFromVelocity(nextFace, nextVelocity);
+
+  return {
+    elapsed: 0,
+    duration: CONFIG.transitionDuration,
+    fromCenterLocal: sub(facePoint(previousFace, previousU, previousV), scale(previousMotion.basis.normal, CONFIG.interiorOffset)),
+    toCenterLocal: sub(facePoint(nextFace, nextU, nextV), scale(nextMotion.basis.normal, CONFIG.interiorOffset)),
+    fromNormalLocal: previousMotion.basis.normal,
+    toNormalLocal: nextMotion.basis.normal,
+    fromTangentLocal: previousMotion.tangent,
+    toTangentLocal: nextMotion.tangent,
+    fromBitangentLocal: previousMotion.bitangent,
+    toBitangentLocal: nextMotion.bitangent,
+  };
 }
 
 function switchDropFace(drop, nextFace, position, velocity) {
+  const previousFace = { ...drop.face };
+  const previousU = drop.u;
+  const previousV = drop.v;
+  const previousVelocity = velocity;
   const basis = getFaceBasis(nextFace);
   const radius = computeDropRadius(drop);
   const limit = limitForRadius(radius);
 
+  const nextU = clamp(dot(position, basis.u), -limit, limit);
+  const nextV = clamp(dot(position, basis.v), -limit, limit);
+  const nextDu = dot(velocity, basis.u) * 0.88;
+  const nextDv = dot(velocity, basis.v) * 0.88;
+  const nextVelocity = add(scale(basis.u, nextDu), scale(basis.v, nextDv));
+
   drop.face = { ...nextFace };
-  drop.u = clamp(dot(position, basis.u), -limit, limit);
-  drop.v = clamp(dot(position, basis.v), -limit, limit);
-  drop.du = dot(velocity, basis.u) * 0.88;
-  drop.dv = dot(velocity, basis.v) * 0.88;
+  drop.u = nextU;
+  drop.v = nextV;
+  drop.du = nextDu;
+  drop.dv = nextDv;
+  drop.transition = buildTransitionState(previousFace, previousU, previousV, previousVelocity, drop.face, drop.u, drop.v, nextVelocity);
+}
+
+function updateDropTransition(drop, dt) {
+  if (!drop.transition) {
+    return;
+  }
+
+  drop.transition.elapsed += dt;
+  if (drop.transition.elapsed >= drop.transition.duration) {
+    drop.transition = null;
+  }
 }
 
 function applySurfaceAttraction(dt) {
@@ -441,7 +521,7 @@ function updateDrops(dt) {
     let acceleration = computeEffectiveAcceleration(position, velocity, gravityLocal);
     const nextFace = dominantFace(acceleration, drop.face);
 
-    if (!faceEquals(drop.face, nextFace) && canSwitchFace(position, nextFace, computeDropRadius(drop))) {
+    if (!faceEquals(drop.face, nextFace) && canSwitchFace(drop, position, velocity, nextFace)) {
       switchDropFace(drop, nextFace, position, velocity);
       position = facePoint(drop.face, drop.u, drop.v);
       velocity = computeDropVelocity3D(drop);
@@ -485,6 +565,8 @@ function updateDrops(dt) {
         drop.du *= CONFIG.edgeSlideDamping;
       }
     }
+
+    updateDropTransition(drop, dt);
   }
 
   mergeDrops();
@@ -496,7 +578,7 @@ function mergeDrops() {
     for (let j = i - 1; j >= 0; j -= 1) {
       const a = state.droplets[i];
       const b = state.droplets[j];
-      if (!faceEquals(a.face, b.face)) {
+      if (a.transition || b.transition || !faceEquals(a.face, b.face)) {
         continue;
       }
 
@@ -659,24 +741,50 @@ function renderDrops() {
   }
 }
 
-function buildDropVisual(drop, cameraPosition) {
+function resolveDropRenderPose(drop) {
   const basis = getFaceBasis(drop.face);
-  const localCenter = sub(facePoint(drop.face, drop.u, drop.v), scale(basis.normal, CONFIG.interiorOffset));
   const speed = Math.hypot(drop.du, drop.dv);
   const baseRadius = computeDropRadius(drop);
   const stretch = clamp(1 + speed * 0.085, 1, 1.38);
   const rxLocal = baseRadius * stretch;
   const ryLocal = baseRadius / Math.sqrt(stretch);
 
+  if (drop.transition) {
+    const transition = drop.transition;
+    const t = smoothstep01(transition.elapsed / transition.duration);
+    return {
+      centerLocal: mixVec3(transition.fromCenterLocal, transition.toCenterLocal, t),
+      tangentLocal: normalize(mixVec3(transition.fromTangentLocal, transition.toTangentLocal, t)),
+      bitangentLocal: normalize(mixVec3(transition.fromBitangentLocal, transition.toBitangentLocal, t)),
+      normalLocal: normalize(mixVec3(transition.fromNormalLocal, transition.toNormalLocal, t)),
+      rxLocal,
+      ryLocal,
+    };
+  }
+
+  const localCenter = sub(facePoint(drop.face, drop.u, drop.v), scale(basis.normal, CONFIG.interiorOffset));
   const tangent = speed > 0.02 ? normalize(add(scale(basis.u, drop.du), scale(basis.v, drop.dv))) : basis.u;
   const bitangent = normalize(cross(basis.normal, tangent));
-  const centerWorld = quatRotateVec(state.rotation, localCenter);
-  const tangentWorld = quatRotateVec(state.rotation, add(localCenter, scale(tangent, rxLocal)));
-  const bitangentWorld = quatRotateVec(state.rotation, add(localCenter, scale(bitangent, ryLocal)));
+
+  return {
+    centerLocal: localCenter,
+    tangentLocal: tangent,
+    bitangentLocal: bitangent,
+    normalLocal: basis.normal,
+    rxLocal,
+    ryLocal,
+  };
+}
+
+function buildDropVisual(drop, cameraPosition) {
+  const pose = resolveDropRenderPose(drop);
+  const centerWorld = quatRotateVec(state.rotation, pose.centerLocal);
+  const tangentWorld = quatRotateVec(state.rotation, add(pose.centerLocal, scale(pose.tangentLocal, pose.rxLocal)));
+  const bitangentWorld = quatRotateVec(state.rotation, add(pose.centerLocal, scale(pose.bitangentLocal, pose.ryLocal)));
   const screenCenter = project(centerWorld);
   const screenTangent = project(tangentWorld);
   const screenBitangent = project(bitangentWorld);
-  const faceNormalWorld = quatRotateVec(state.rotation, basis.normal);
+  const faceNormalWorld = quatRotateVec(state.rotation, pose.normalLocal);
   const toCamera = normalize(sub(cameraPosition, centerWorld));
   const faceVisibility = clamp(dot(faceNormalWorld, toCamera) * 0.5 + 0.55, 0.34, 1);
 
@@ -802,6 +910,8 @@ function init() {
 }
 
 init();
+
+
 
 
 
