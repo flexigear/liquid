@@ -424,6 +424,61 @@ function canSwitchFace(drop, position, velocity, nextFace) {
   return edgeCoordinate >= edgeThreshold && approachVelocity > -0.02;
 }
 
+function getSharedEdgeDirection(faceA, faceB) {
+  const direction = cross(getFaceBasis(faceA).normal, getFaceBasis(faceB).normal);
+  const length = lengthOf(direction);
+  if (length < 1e-6) {
+    return null;
+  }
+  return scale(direction, 1 / length);
+}
+
+function computeTransferCoordinates(previousFace, nextFace, position, limit) {
+  const nextBasis = getFaceBasis(nextFace);
+  const edgeDirection = getSharedEdgeDirection(previousFace, nextFace);
+  let nextU = clamp(dot(position, nextBasis.u), -limit, limit);
+  let nextV = clamp(dot(position, nextBasis.v), -limit, limit);
+
+  if (!edgeDirection) {
+    return { nextU, nextV };
+  }
+
+  const inset = Math.min(CONFIG.edgeTransferMargin * 1.25, limit * 0.2);
+  const edgeAlongU = Math.abs(dot(edgeDirection, nextBasis.u));
+  const edgeAlongV = Math.abs(dot(edgeDirection, nextBasis.v));
+
+  if (edgeAlongU > edgeAlongV) {
+    const edgeNormalSign = Math.sign(dot(position, nextBasis.v)) || 1;
+    nextV = edgeNormalSign * (limit - inset);
+  } else {
+    const edgeNormalSign = Math.sign(dot(position, nextBasis.u)) || 1;
+    nextU = edgeNormalSign * (limit - inset);
+  }
+
+  return { nextU, nextV };
+}
+
+function computeTransferVelocity(previousFace, nextFace, velocity) {
+  const nextBasis = getFaceBasis(nextFace);
+  const edgeDirection = getSharedEdgeDirection(previousFace, nextFace);
+
+  if (!edgeDirection) {
+    return {
+      nextDu: dot(velocity, nextBasis.u) * 0.35,
+      nextDv: dot(velocity, nextBasis.v) * 0.35,
+    };
+  }
+
+  const alongEdgeSpeed = dot(velocity, edgeDirection);
+  const carryU = dot(velocity, nextBasis.u) * 0.12;
+  const carryV = dot(velocity, nextBasis.v) * 0.12;
+
+  return {
+    nextDu: alongEdgeSpeed * dot(edgeDirection, nextBasis.u) + carryU,
+    nextDv: alongEdgeSpeed * dot(edgeDirection, nextBasis.v) + carryV,
+  };
+}
+
 function buildTransitionState(previousFace, previousU, previousV, previousVelocity, nextFace, nextU, nextV, nextVelocity) {
   const previousMotion = getMotionBasisFromVelocity(previousFace, previousVelocity);
   const nextMotion = getMotionBasisFromVelocity(nextFace, nextVelocity);
@@ -447,21 +502,17 @@ function switchDropFace(drop, nextFace, position, velocity) {
   const previousU = drop.u;
   const previousV = drop.v;
   const previousVelocity = velocity;
-  const basis = getFaceBasis(nextFace);
   const radius = computeDropRadius(drop);
   const limit = limitForRadius(radius);
-
-  const nextU = clamp(dot(position, basis.u), -limit, limit);
-  const nextV = clamp(dot(position, basis.v), -limit, limit);
-  const nextDu = dot(velocity, basis.u) * 0.88;
-  const nextDv = dot(velocity, basis.v) * 0.88;
-  const nextVelocity = add(scale(basis.u, nextDu), scale(basis.v, nextDv));
+  const transferCoordinates = computeTransferCoordinates(previousFace, nextFace, position, limit);
+  const transferVelocity = computeTransferVelocity(previousFace, nextFace, velocity);
+  const nextVelocity = add(scale(getFaceBasis(nextFace).u, transferVelocity.nextDu), scale(getFaceBasis(nextFace).v, transferVelocity.nextDv));
 
   drop.face = { ...nextFace };
-  drop.u = nextU;
-  drop.v = nextV;
-  drop.du = nextDu;
-  drop.dv = nextDv;
+  drop.u = transferCoordinates.nextU;
+  drop.v = transferCoordinates.nextV;
+  drop.du = transferVelocity.nextDu;
+  drop.dv = transferVelocity.nextDv;
   drop.transition = buildTransitionState(previousFace, previousU, previousV, previousVelocity, drop.face, drop.u, drop.v, nextVelocity);
 }
 
@@ -910,6 +961,7 @@ function init() {
 }
 
 init();
+
 
 
 
