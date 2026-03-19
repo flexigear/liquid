@@ -7,16 +7,19 @@ namespace Liquid
         [SerializeField] private Transform targetTransform;
         [SerializeField] private Vector3 targetOffset = Vector3.zero;
         [SerializeField] private float lookSensitivity = 2.2f;
-        [SerializeField] private float moveSpeed = 3.5f;
-        [SerializeField] private float fastMoveMultiplier = 2.5f;
+        [SerializeField] private float zoomSensitivity = 1.6f;
         [SerializeField] private float minPitch = -75f;
         [SerializeField] private float maxPitch = 75f;
+        [SerializeField] private float minDistance = 2.2f;
+        [SerializeField] private float maxDistance = 8.5f;
 
         private float yaw;
         private float pitch;
+        private float distance = 5.4f;
         private float initialYaw;
         private float initialPitch;
-        private Vector3 initialPosition;
+        private float initialDistance;
+        private Vector3 initialTargetOffset;
 
         public void SetTarget(Transform target)
         {
@@ -24,10 +27,12 @@ namespace Liquid
 
             if (targetTransform != null)
             {
-                transform.LookAt(targetTransform.position + targetOffset, Vector3.up);
+                Vector3 focusPoint = GetFocusPoint();
+                transform.LookAt(focusPoint, Vector3.up);
             }
 
             SyncStateFromTransform();
+            ApplyOrbit();
         }
 
         private void Awake()
@@ -39,27 +44,31 @@ namespace Liquid
         private void OnEnable()
         {
             SyncStateFromTransform();
+            ApplyOrbit();
         }
 
         private void LateUpdate()
         {
             HandleInput();
+            ApplyOrbit();
         }
 
         public void CaptureCurrentAsInitialState()
         {
             SyncStateFromTransform();
-            initialPosition = transform.position;
             initialYaw = yaw;
             initialPitch = pitch;
+            initialDistance = distance;
+            initialTargetOffset = targetOffset;
         }
 
         public void ResetOrbitState()
         {
-            transform.position = initialPosition;
             yaw = initialYaw;
             pitch = initialPitch;
-            ApplyRotation();
+            distance = initialDistance;
+            targetOffset = initialTargetOffset;
+            ApplyOrbit();
         }
 
         private void HandleInput()
@@ -69,64 +78,66 @@ namespace Liquid
                 yaw += Input.GetAxis("Mouse X") * lookSensitivity;
                 pitch -= Input.GetAxis("Mouse Y") * lookSensitivity;
                 pitch = Mathf.Clamp(pitch, minPitch, maxPitch);
-                ApplyRotation();
             }
 
-            Vector3 movementInput = Vector3.zero;
-
-            if (Input.GetKey(KeyCode.W))
+            float scrollDelta = Input.mouseScrollDelta.y;
+            if (Mathf.Abs(scrollDelta) > 0.0001f)
             {
-                movementInput += Vector3.forward;
-            }
-            if (Input.GetKey(KeyCode.S))
-            {
-                movementInput += Vector3.back;
-            }
-            if (Input.GetKey(KeyCode.A))
-            {
-                movementInput += Vector3.left;
-            }
-            if (Input.GetKey(KeyCode.D))
-            {
-                movementInput += Vector3.right;
-            }
-            if (Input.GetKey(KeyCode.E))
-            {
-                movementInput += Vector3.up;
-            }
-            if (Input.GetKey(KeyCode.Q))
-            {
-                movementInput += Vector3.down;
-            }
-
-            if (movementInput.sqrMagnitude > 0f)
-            {
-                float speed = moveSpeed;
-                if (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift))
-                {
-                    speed *= fastMoveMultiplier;
-                }
-
-                Vector3 moveDirection =
-                    transform.forward * movementInput.z +
-                    transform.right * movementInput.x +
-                    Vector3.up * movementInput.y;
-
-                transform.position += moveDirection.normalized * speed * Time.unscaledDeltaTime;
+                distance = Mathf.Clamp(distance - scrollDelta * zoomSensitivity, minDistance, maxDistance);
             }
         }
 
         private void SyncStateFromTransform()
         {
-            Vector3 eulerAngles = transform.rotation.eulerAngles;
-            yaw = eulerAngles.y;
-            pitch = NormalizeAngle(eulerAngles.x);
+            if (targetTransform == null)
+            {
+                Vector3 eulerAngles = transform.rotation.eulerAngles;
+                yaw = eulerAngles.y;
+                pitch = NormalizeAngle(eulerAngles.x);
+                pitch = Mathf.Clamp(pitch, minPitch, maxPitch);
+                return;
+            }
+
+            Vector3 focusPoint = GetFocusPoint();
+            Vector3 toCamera = transform.position - focusPoint;
+            distance = Mathf.Clamp(toCamera.magnitude, minDistance, maxDistance);
+
+            if (distance <= 1e-4f)
+            {
+                distance = Mathf.Max(minDistance, 0.1f);
+                toCamera = Quaternion.Euler(pitch, yaw, 0f) * (Vector3.back * distance);
+            }
+
+            Quaternion orbitRotation = Quaternion.LookRotation(toCamera.normalized, Vector3.up);
+            Vector3 orbitEulerAngles = orbitRotation.eulerAngles;
+            yaw = orbitEulerAngles.y;
+            pitch = NormalizeAngle(orbitEulerAngles.x);
             pitch = Mathf.Clamp(pitch, minPitch, maxPitch);
         }
 
-        private void ApplyRotation()
+        private void ApplyOrbit()
         {
-            transform.rotation = Quaternion.Euler(pitch, yaw, 0f);
+            Quaternion orbitRotation = Quaternion.Euler(pitch, yaw, 0f);
+
+            if (targetTransform == null)
+            {
+                transform.rotation = orbitRotation;
+                return;
+            }
+
+            Vector3 focusPoint = GetFocusPoint();
+            transform.position = focusPoint + orbitRotation * (Vector3.back * distance);
+            transform.LookAt(focusPoint, Vector3.up);
+        }
+
+        private Vector3 GetFocusPoint()
+        {
+            if (targetTransform == null)
+            {
+                return transform.position + transform.forward * distance;
+            }
+
+            return targetTransform.position + targetOffset;
         }
 
         private static float NormalizeAngle(float angle)

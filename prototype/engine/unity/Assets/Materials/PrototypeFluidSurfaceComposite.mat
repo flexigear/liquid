@@ -30,14 +30,18 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _AbsorptionStrength: 0.7
-    - _BaseAlpha: 0.28
+    - _AbsorptionStrength: 0.95
+    - _BaseAlpha: 0.34
     - _BlurScale: 1.35
+    - _ChromaticAberration: 0.0035
+    - _DepthDarkeningStrength: 0.75
+    - _EdgeDarkeningStrength: 1.15
     - _FresnelPower: 4
     - _HighlightExponent: 52
     - _HighlightStrength: 1.2
     - _NormalStrength: 4.2
-    - _RefractionStrength: 0.018
+    - _RefractionEdgeBoost: 1.5
+    - _RefractionStrength: 0.028
     - _Softness: 0.18
     - _Threshold: 0.22
     - _TintStrength: 0.24

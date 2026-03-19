@@ -27,6 +27,7 @@ namespace Liquid.Editor
         private const string FrameMaterialPath = "Assets/Materials/PrototypeFrame.mat";
         private const string MarkerMaterialPath = "Assets/Materials/PrototypeLiquidMarker.mat";
         private const string ReflectionCardMaterialPath = "Assets/Materials/PrototypeReflectionCard.mat";
+        private const string RefractionTestFaceMaterialPath = "Assets/Materials/PrototypeRefractionTestFace.mat";
         private const string PlaybackParticleMaterialPath = "Assets/Materials/PrototypePlaybackParticle.mat";
         private const string FluidMaskParticleMaterialPath = "Assets/Materials/PrototypeFluidMaskParticle.mat";
         private const string FluidSurfaceCompositeMaterialPath = "Assets/Materials/PrototypeFluidSurfaceComposite.mat";
@@ -39,6 +40,18 @@ namespace Liquid.Editor
         private const float WallThickness = 0.025f;
         private const float GlassVisualInset = 0.02f;
         private const float ZibraEmitterDisableDelaySeconds = 60.0f;
+        private const float ZibraExteriorColliderExtent = 8.0f;
+        private const int ZibraMaxParticles = 131072;
+        private const float ZibraParticleDensity = 1.0f;
+        private const float ZibraWaterViscosity = 0.48f;
+        private const float ZibraWaterSurfaceTension = 0.24f;
+        private const float ZibraWallFriction = 0.32f;
+        private const float ZibraTrackballDragSensitivity = 0.32f;
+        private const float ZibraTrackballMaxAngularSpeed = 14.0f;
+        private const float ZibraTrackballMaxAngularAcceleration = 140.0f;
+        private const float ZibraTrackballReleaseInertiaCarry = 0.16f;
+        private const float ZibraTrackballReleaseInertiaDeceleration = 6.0f;
+        private const int PrototypeMsaaSampleCount = 4;
         private const int ReflectionOnlyLayer = 2;
 
         [MenuItem("Liquid/Bootstrap/Setup Project")]
@@ -185,6 +198,7 @@ namespace Liquid.Editor
             Material frameMaterial = EnsureFrameMaterial();
             Material markerMaterial = EnsureMarkerMaterial();
             Material reflectionCardMaterial = EnsureReflectionCardMaterial();
+            Material refractionTestFaceMaterial = EnsureRefractionTestFaceMaterial();
 
             RenderSettings.ambientMode = AmbientMode.Trilight;
             RenderSettings.ambientSkyColor = new Color(0.62f, 0.68f, 0.76f);
@@ -209,6 +223,7 @@ namespace Liquid.Editor
             camera.cullingMask &= ~(1 << ReflectionOnlyLayer);
             cameraObject.transform.position = new Vector3(0f, 0.2f, -5.4f);
             cameraObject.transform.LookAt(Vector3.zero);
+            ConfigurePrototypeCamera(camera);
 
             GameObject reflectionProbeObject = new GameObject("PrototypeReflectionProbe");
             ReflectionProbe reflectionProbe = reflectionProbeObject.AddComponent<ReflectionProbe>();
@@ -231,10 +246,20 @@ namespace Liquid.Editor
             GameObject commandObject = new GameObject("ContainerCommand");
             commandObject.transform.SetPositionAndRotation(pivot.transform.position, pivot.transform.rotation);
             TrackballContainerController trackballController = commandObject.AddComponent<TrackballContainerController>();
+            trackballController.ConfigureTarget(pivot.transform, pivot.GetComponent<Rigidbody>(), true);
+            trackballController.ConfigureMotionResponse(
+                ZibraTrackballDragSensitivity,
+                ZibraTrackballMaxAngularSpeed,
+                ZibraTrackballMaxAngularAcceleration);
+            trackballController.ConfigureReleaseInertia(
+                true,
+                ZibraTrackballReleaseInertiaCarry,
+                ZibraTrackballReleaseInertiaDeceleration);
 
             GameObject containerRoot = new GameObject("SquareGlassContainer");
             containerRoot.transform.SetParent(pivot.transform, false);
             BuildSquareGlassContainer(containerRoot.transform, glassMaterial);
+            ApplyRefractionTestFace(containerRoot.transform, refractionTestFaceMaterial);
             BuildCubeFrame(containerRoot.transform, frameMaterial);
 
             bool hasZibraLiquid = TryCreateZibraLiquidSetup(pivot.transform, containerRoot.transform, reflectionProbe);
@@ -293,6 +318,7 @@ namespace Liquid.Editor
             camera.cullingMask &= ~(1 << ReflectionOnlyLayer);
             cameraObject.transform.position = new Vector3(0f, 0.2f, -5.4f);
             cameraObject.transform.LookAt(Vector3.zero);
+            ConfigurePrototypeCamera(camera);
 
             GameObject reflectionProbeObject = new GameObject("PrototypeReflectionProbe");
             ReflectionProbe reflectionProbe = reflectionProbeObject.AddComponent<ReflectionProbe>();
@@ -358,6 +384,7 @@ namespace Liquid.Editor
             camera.cullingMask &= ~(1 << ReflectionOnlyLayer);
             cameraObject.transform.position = new Vector3(0f, 0.2f, -5.4f);
             cameraObject.transform.LookAt(Vector3.zero);
+            ConfigurePrototypeCamera(camera);
 
             GameObject reflectionProbeObject = new GameObject("PrototypeReflectionProbe");
             ReflectionProbe reflectionProbe = reflectionProbeObject.AddComponent<ReflectionProbe>();
@@ -421,12 +448,29 @@ namespace Liquid.Editor
             EnsureDefaultRenderer(pipelineAsset);
             pipelineAsset.supportsCameraDepthTexture = true;
             pipelineAsset.supportsCameraOpaqueTexture = true;
+            pipelineAsset.msaaSampleCount = PrototypeMsaaSampleCount;
             EnsureZibraUrpRenderFeature();
             EnsureUrpCompatibilityMode();
             GraphicsSettings.defaultRenderPipeline = pipelineAsset;
             AssignPipelineToAllQualityLevels(pipelineAsset);
             EditorUtility.SetDirty(pipelineAsset);
             AssetDatabase.SaveAssets();
+        }
+
+        private static void ConfigurePrototypeCamera(Camera camera)
+        {
+            if (camera == null)
+            {
+                return;
+            }
+
+            camera.allowMSAA = true;
+            camera.allowHDR = true;
+
+            UniversalAdditionalCameraData additionalCameraData = camera.GetUniversalAdditionalCameraData();
+            additionalCameraData.renderPostProcessing = true;
+            additionalCameraData.antialiasing = AntialiasingMode.SubpixelMorphologicalAntiAliasing;
+            additionalCameraData.antialiasingQuality = AntialiasingQuality.High;
         }
 
         private static void AddKinematicPivotRigidbody(GameObject pivot)
@@ -631,6 +675,25 @@ namespace Liquid.Editor
                 });
         }
 
+        private static Material EnsureRefractionTestFaceMaterial()
+        {
+            return EnsureMaterialAsset(
+                RefractionTestFaceMaterialPath,
+                "Prototype/RefractionTestPattern",
+                material =>
+                {
+                    material.SetColor("_BackgroundColor", new Color(0.98f, 0.98f, 0.98f, 1f));
+                    material.SetColor("_FaceColor", new Color(1.0f, 0.87f, 0.18f, 1f));
+                    material.SetColor("_FeatureColor", new Color(0.08f, 0.08f, 0.1f, 1f));
+                    material.SetColor("_AccentColor", new Color(1.0f, 0.62f, 0.0f, 1f));
+                    material.SetFloat("_FaceScale", 0.78f);
+                    material.SetFloat("_OutlineThickness", 0.028f);
+                    material.SetFloat("_Surface", 0f);
+                    material.SetFloat("_Cull", 0f);
+                    material.renderQueue = (int)RenderQueue.Geometry;
+                });
+        }
+
         private static Material EnsurePlaybackParticleMaterial()
         {
             return EnsureMaterialAsset(
@@ -686,10 +749,14 @@ namespace Liquid.Editor
                     material.SetFloat("_Softness", 0.18f);
                     material.SetFloat("_BlurScale", 1.35f);
                     material.SetFloat("_NormalStrength", 4.2f);
-                    material.SetFloat("_RefractionStrength", 0.018f);
+                    material.SetFloat("_RefractionStrength", 0.028f);
+                    material.SetFloat("_RefractionEdgeBoost", 1.5f);
+                    material.SetFloat("_ChromaticAberration", 0.0035f);
                     material.SetFloat("_TintStrength", 0.24f);
-                    material.SetFloat("_AbsorptionStrength", 0.7f);
-                    material.SetFloat("_BaseAlpha", 0.28f);
+                    material.SetFloat("_AbsorptionStrength", 0.95f);
+                    material.SetFloat("_BaseAlpha", 0.34f);
+                    material.SetFloat("_EdgeDarkeningStrength", 1.15f);
+                    material.SetFloat("_DepthDarkeningStrength", 0.75f);
                     material.SetFloat("_FresnelPower", 4.0f);
                     material.SetFloat("_HighlightStrength", 1.2f);
                     material.SetFloat("_HighlightExponent", 52f);
@@ -921,6 +988,47 @@ namespace Liquid.Editor
                 material);
         }
 
+        private static void ApplyRefractionTestFace(Transform containerRoot, Material testFaceMaterial)
+        {
+            if (containerRoot == null || testFaceMaterial == null)
+            {
+                return;
+            }
+
+            Transform farWall = containerRoot.Find("Wall_Front");
+            if (farWall == null)
+            {
+                return;
+            }
+
+            Transform existingSticker = farWall.Find("Wall_Front_Sticker");
+            if (existingSticker != null)
+            {
+                UnityEngine.Object.DestroyImmediate(existingSticker.gameObject);
+            }
+
+            GameObject sticker = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            sticker.name = "Wall_Front_Sticker";
+            sticker.transform.SetParent(farWall, false);
+            sticker.transform.localPosition = new Vector3(0f, 0f, -WallThickness * 0.55f);
+            sticker.transform.localRotation = Quaternion.identity;
+            sticker.transform.localScale = new Vector3(ContainerInnerSize.x * 0.78f, ContainerInnerSize.y * 0.78f, 1f);
+            ApplyMaterial(sticker, testFaceMaterial);
+
+            Collider stickerCollider = sticker.GetComponent<Collider>();
+            if (stickerCollider != null)
+            {
+                UnityEngine.Object.DestroyImmediate(stickerCollider);
+            }
+
+            Renderer stickerRenderer = sticker.GetComponent<Renderer>();
+            if (stickerRenderer != null)
+            {
+                stickerRenderer.shadowCastingMode = ShadowCastingMode.Off;
+                stickerRenderer.receiveShadows = false;
+            }
+        }
+
         private static void CreateGlassWallVisual(
             Transform parent,
             string name,
@@ -1088,6 +1196,7 @@ namespace Liquid.Editor
             Component liquid = liquidObject.AddComponent(liquidType);
             float rotatingCubeBounds = ContainerInnerSize.magnitude * 1.05f;
             SetFieldValue(liquid, "ContainerSize", Vector3.one * rotatingCubeBounds);
+            SetFieldValue(liquid, "MaxNumParticles", ZibraMaxParticles);
             SetFieldValue(liquid, "EnableContainerMovementFeedback", false);
             SetFieldValue(liquid, "ReflectionProbeBRP", reflectionProbe);
 
@@ -1096,6 +1205,9 @@ namespace Liquid.Editor
             Component solverParameters = liquidObject.GetComponent(solverParametersType);
             ApplyPresetIfPresent(materialParameters, ZibraMaterialPresetPath);
             ApplyPresetIfPresent(solverParameters, ZibraSolverPresetPath);
+            SetFieldValue(solverParameters, "ParticleDensity", ZibraParticleDensity);
+            SetFieldValue(solverParameters, "Viscosity", ZibraWaterViscosity);
+            SetFieldValue(solverParameters, "SurfaceTension", ZibraWaterSurfaceTension);
             ApplyRealisticWaterMaterial(materialParameters);
             ApplyRealisticWaterRendering(advancedRenderParameters);
 
@@ -1143,6 +1255,8 @@ namespace Liquid.Editor
                     continue;
                 }
 
+                ExpandZibraWallColliderAnchor(wall.name, wallColliderAnchor);
+
                 Component analyticSdf = wallColliderAnchor.GetComponent(analyticSdfType);
                 if (analyticSdf == null)
                 {
@@ -1157,9 +1271,49 @@ namespace Liquid.Editor
                     liquidCollider = wallColliderAnchor.gameObject.AddComponent(colliderType);
                 }
 
-                SetFieldValue(liquidCollider, "Friction", 0.05f);
+                SetFieldValue(liquidCollider, "Friction", ZibraWallFriction);
                 InvokeMethod(liquid, "AddCollider", liquidCollider);
             }
+        }
+
+        private static void ExpandZibraWallColliderAnchor(string wallName, Transform wallColliderAnchor)
+        {
+            if (wallColliderAnchor == null)
+            {
+                return;
+            }
+
+            Vector3 baseScale = wallColliderAnchor.localScale;
+            Vector3 expandedScale = new Vector3(
+                Mathf.Max(baseScale.x, ZibraExteriorColliderExtent),
+                Mathf.Max(baseScale.y, ZibraExteriorColliderExtent),
+                Mathf.Max(baseScale.z, ZibraExteriorColliderExtent));
+            Vector3 outwardOffset = Vector3.zero;
+
+            switch (wallName)
+            {
+                case "Wall_Front":
+                    outwardOffset = Vector3.forward * (expandedScale.z - baseScale.z) * 0.5f;
+                    break;
+                case "Wall_Back":
+                    outwardOffset = Vector3.back * (expandedScale.z - baseScale.z) * 0.5f;
+                    break;
+                case "Wall_Left":
+                    outwardOffset = Vector3.left * (expandedScale.x - baseScale.x) * 0.5f;
+                    break;
+                case "Wall_Right":
+                    outwardOffset = Vector3.right * (expandedScale.x - baseScale.x) * 0.5f;
+                    break;
+                case "Wall_Top":
+                    outwardOffset = Vector3.up * (expandedScale.y - baseScale.y) * 0.5f;
+                    break;
+                case "Wall_Bottom":
+                    outwardOffset = Vector3.down * (expandedScale.y - baseScale.y) * 0.5f;
+                    break;
+            }
+
+            wallColliderAnchor.localScale = expandedScale;
+            wallColliderAnchor.localPosition = outwardOffset;
         }
 
         private static void ApplyRealisticWaterMaterial(Component materialParameters)
@@ -1170,16 +1324,16 @@ namespace Liquid.Editor
             }
 
             SetFieldValue(materialParameters, "UseCubemapRefraction", false);
-            SetFieldValue(materialParameters, "Color", new Color(0.93f, 0.98f, 1.0f, 1f));
+            SetFieldValue(materialParameters, "Color", new Color(0.96f, 0.99f, 1.0f, 1f));
             SetFieldValue(materialParameters, "EmissiveColor", Color.black);
-            SetFieldValue(materialParameters, "ReflectionColor", new Color(0.95f, 0.97f, 1.0f, 1f));
-            SetFieldValue(materialParameters, "ScatteringAmount", 0.15f);
-            SetFieldValue(materialParameters, "AbsorptionAmount", 12f);
-            SetFieldValue(materialParameters, "Roughness", 0.02f);
-            SetFieldValue(materialParameters, "Metalness", 0.08f);
-            SetFieldValue(materialParameters, "FresnelStrength", 1.05f);
-            SetFieldValue(materialParameters, "IndexOfRefraction", 1.333f);
-            SetFieldValue(materialParameters, "FluidSurfaceBlur", 0.85f);
+            SetFieldValue(materialParameters, "ReflectionColor", Color.white);
+            SetFieldValue(materialParameters, "ScatteringAmount", 0.0f);
+            SetFieldValue(materialParameters, "AbsorptionAmount", 28f);
+            SetFieldValue(materialParameters, "Roughness", 0.018f);
+            SetFieldValue(materialParameters, "Metalness", 0.04f);
+            SetFieldValue(materialParameters, "FresnelStrength", 1.08f);
+            SetFieldValue(materialParameters, "IndexOfRefraction", 1.26f);
+            SetFieldValue(materialParameters, "FluidSurfaceBlur", 1.28f);
         }
 
         private static void ApplyRealisticWaterRendering(Component advancedRenderParameters)
@@ -1193,10 +1347,10 @@ namespace Liquid.Editor
             SetFieldValue(advancedRenderParameters, "UnderwaterRender", false);
             SetFieldValue(advancedRenderParameters, "RayMarchingResolutionDownscale", 1.0f);
             SetEnumFieldValue(advancedRenderParameters, "RefractionBounces", "TwoBounces");
-            SetFieldValue(advancedRenderParameters, "RayMarchIsoSurface", 0.65f);
-            SetFieldValue(advancedRenderParameters, "RayMarchMaxSteps", 128);
-            SetFieldValue(advancedRenderParameters, "RayMarchStepSize", 0.15f);
-            SetFieldValue(advancedRenderParameters, "RayMarchStepFactor", 3.5f);
+            SetFieldValue(advancedRenderParameters, "RayMarchIsoSurface", 0.58f);
+            SetFieldValue(advancedRenderParameters, "RayMarchMaxSteps", 192);
+            SetFieldValue(advancedRenderParameters, "RayMarchStepSize", 0.1f);
+            SetFieldValue(advancedRenderParameters, "RayMarchStepFactor", 2.8f);
         }
 
         private static void ApplyPresetIfPresent(Component targetComponent, string presetAssetPath)

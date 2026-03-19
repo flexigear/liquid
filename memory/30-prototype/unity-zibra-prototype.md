@@ -52,6 +52,10 @@ This is a deliberately staged realism pass. It is not yet a production-grade gla
 - Ordinary slow and medium rotations read much more like liquid than the browser approximation.
 - Water amount, glass readability, and quick reset flow are now tunable in one scene.
 - The browser prototype has been successfully retired as an active implementation path and preserved as historical baseline only.
+- Extending the physical wall colliders outward while keeping the visible glass cube unchanged materially reduced ordinary sealed-container leakage.
+- The baseline scene now has a more convincing interaction stack: quaternion-style arcball drag on the cube, release inertia on container motion, and an orbit camera that stays centered on the cube.
+- A refraction test face can now be placed on the far inner wall to make liquid distortion easier to evaluate through the water.
+- A first glass-adhesion preset now exists by combining higher `SurfaceTension`, higher wall `Friction`, and slightly higher `Viscosity`.
 
 ## Confirmed Pitfalls
 
@@ -62,10 +66,14 @@ This is a deliberately staged realism pass. It is not yet a production-grade gla
 - Coplanar double-quad glass looked plausible at first but produced inconsistent highlights and face readability. Replacing it with thin glass wall geometry was the right correction.
 - Trying to harden leakage by forcing a tighter fixed-step simulation plus extra iterations made the liquid feel worse and still did not solve aggressive high-speed spill-through. That experiment was reverted.
 - The current `Unity + Zibra` setup is acceptable for ordinary motion validation, but not yet trustworthy for extreme fast closed-container motion with a strict "no leakage under violent shaking" requirement.
+- The project currently does not expose a dedicated wetting, adhesion, or contact-angle parameter in the imported Zibra package. Glass attraction is therefore being approximated through solver `SurfaceTension`, collider `Friction`, and moderate `Viscosity`, not through a true meniscus or wetting model.
+- Strong refraction can be present yet still appear weak if the background behind the fluid lacks high-frequency detail. A patterned or iconic inner-wall sticker is useful for judging distortion.
 
 ## Important Technical Constraint
 
 Zibra's liquid container model is still fundamentally axis-aligned at the solver level. The rotating cube behavior is approximated by driving rotating colliders inside a larger solver volume. This works for the prototype's ordinary interaction range, but it is a real constraint when evaluating extreme motion.
+
+The current leakage mitigation is also partly geometric: the visible inner cavity remains aligned with the glass walls, while the wall colliders extend outward into large hidden slabs so the liquid has effectively no nearby escape volume outside the cube.
 
 ## Recommended Interpretation
 
@@ -76,5 +84,7 @@ Zibra's liquid container model is still fundamentally axis-aligned at the solver
 ## Near-Term Next Steps
 
 - Capture reference videos of slow, medium, and fast motion in the current Unity scene.
+- Tune the new adhesion preset until it creates visible wall-hugging without making the water feel syrupy.
+- Improve refraction readability and glass realism using better background references and selective visual cheats rather than assuming pure physical parameters will be enough.
 - Define the acceptable motion envelope for this prototype instead of treating "any possible shake speed" as the same requirement.
-- Research solver approaches that handle fast moving solid boundaries more robustly before committing to production architecture.
+- Keep deeper solver research in reserve if the current `Zibra` workaround fails outside the accepted motion envelope.

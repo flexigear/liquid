@@ -33,12 +33,13 @@
 - `SPlisHSPlasH` has now been integrated back into Unity through a native bridge and can be driven interactively in a realtime scene.
 - The current `SPlisHSPlasH` realtime path uses about `5292` particles and is CPU-side rather than GPU fluid simulation.
 - The current `SPlisHSPlasH` visual layer is no longer raw blue dots; it now uses a first custom screen-space-style water surface composite over a particle mask.
-- The `Zibra` route is currently paused while the `SPlisHSPlasH` route is evaluated for stricter sealed-container behavior.
+- The `Zibra` route is active again as the current best-feel baseline after extending the physical wall colliders outward while keeping the visible glass unchanged.
+- The current `Zibra` baseline now has a stronger trackball feel, orbit camera, release inertia, a refraction test sticker on the inner wall, and a first glass-adhesion parameter preset.
 
 ## Open Questions
 
 - Whether the current `SPlisHSPlasH` realtime route can be pushed far enough in performance and visual quality to replace `Zibra` for the main prototype.
-- Whether the current `Unity + Zibra` path is still worth keeping as the better-looking baseline if strict no-leakage is relaxed.
+- Whether the current `Unity + Zibra` path should remain the main prototype path now that outward-expanded wall colliders materially reduced leakage in ordinary use.
 - Which of the surveyed alternatives should replace or supplement the current Unity path if `SPlisHSPlasH` remains too CPU-heavy.
 - Which liquid parameters produce the most convincing glass-wall adhesion, settle behavior, and water volume for the square container target.
 - What minimum mobile target should be considered after the desktop prototype proves the feel.
@@ -46,9 +47,8 @@
 
 ## Suggested Next Tasks
 
-- Tune the new `SPlisHSPlasH` liquid surface renderer so it reads as water rather than a mask-based overlay.
-- Reduce occasional hitches when particles slam into the cube walls.
-- Decide whether to move the current Unity liquid display path toward GPU instancing or a fuller screen-space fluid pipeline.
-- Compare the current `SPlisHSPlasH` visual result against the paused `Zibra` baseline and decide whether the solver gain is worth the rendering and performance cost.
-- Keep `SPHinXsys` as the next reference route, but do not continue route exploration until the current `SPlisHSPlasH` Unity route is judged.
+- Continue tuning the current `Zibra` baseline for glass readability, refraction clarity, and wall-adhesion feel.
+- Decide whether the current outward-expanded collider trick is sufficient for the prototype motion envelope or only a temporary workaround.
+- Revisit `SPlisHSPlasH` only if strict physical constraints become more important than current `Zibra` feel and presentation.
+- Keep `SPHinXsys` as the next reference route, but do not continue route exploration until the current `Zibra` baseline is judged.
 - Set measurable visual and physical validation criteria.

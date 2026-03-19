@@ -19,11 +19,15 @@ namespace Liquid
         [SerializeField] private float dragSensitivity = 0.24f;
         [SerializeField] private float maxAngularSpeed = 8f;
         [SerializeField] private float maxAngularAcceleration = 40f;
+        [SerializeField] private bool enableReleaseInertia;
+        [SerializeField] private float releaseInertiaCarry = 0.3f;
+        [SerializeField] private float releaseInertiaDeceleration = 18f;
 
         private Quaternion targetRotation;
         private Quaternion commandedRotation;
         private Quaternion initialRotation;
         private Vector3 previousAngularVelocity;
+        private Vector3 releaseAngularVelocity;
         private bool dragActive;
         private Vector2 previousPointerPosition;
 
@@ -65,6 +69,7 @@ namespace Liquid
             commandedRotation = targetRotation;
             initialRotation = targetRotation;
             previousAngularVelocity = Vector3.zero;
+            releaseAngularVelocity = Vector3.zero;
             AngularVelocity = Vector3.zero;
             AngularAcceleration = Vector3.zero;
         }
@@ -98,6 +103,11 @@ namespace Liquid
 
             if (!pointerDown)
             {
+                if (dragActive && enableReleaseInertia)
+                {
+                    releaseAngularVelocity = AngularVelocity * Mathf.Clamp01(releaseInertiaCarry);
+                }
+
                 dragActive = false;
                 return;
             }
@@ -105,15 +115,24 @@ namespace Liquid
             if (!dragActive)
             {
                 dragActive = true;
+                releaseAngularVelocity = Vector3.zero;
                 previousPointerPosition = pointerPosition;
                 return;
             }
 
+            Vector2 previousPointer = previousPointerPosition;
             Vector2 delta = pointerPosition - previousPointerPosition;
             previousPointerPosition = pointerPosition;
 
             if (delta.sqrMagnitude < 0.0001f)
             {
+                return;
+            }
+
+            if (rotationMode == RotationMode.WorldYawPitch)
+            {
+                Quaternion arcballRotation = ComputeArcballRotation(previousPointer, previousPointerPosition);
+                targetRotation = arcballRotation * targetRotation;
                 return;
             }
 
@@ -142,11 +161,76 @@ namespace Liquid
             targetRotation = horizontalRotation * verticalRotation * targetRotation;
         }
 
+        private Quaternion ComputeArcballRotation(Vector2 previousPointer, Vector2 currentPointer)
+        {
+            Camera referenceCamera = Camera.main;
+            Vector3 previousArcballPoint = ProjectPointerToArcball(previousPointer);
+            Vector3 currentArcballPoint = ProjectPointerToArcball(currentPointer);
+            Vector3 localAxis = Vector3.Cross(currentArcballPoint, previousArcballPoint);
+
+            if (localAxis.sqrMagnitude <= 1e-8f)
+            {
+                return Quaternion.identity;
+            }
+
+            float dot = Mathf.Clamp(Vector3.Dot(previousArcballPoint, currentArcballPoint), -1f, 1f);
+            float angleDegrees = Mathf.Acos(dot) * Mathf.Rad2Deg;
+            float sensitivityScale = dragSensitivity / 0.24f;
+            angleDegrees *= Mathf.Max(0.1f, sensitivityScale);
+
+            Vector3 worldAxis = referenceCamera != null
+                ? referenceCamera.transform.TransformDirection(localAxis.normalized)
+                : localAxis.normalized;
+
+            return Quaternion.AngleAxis(angleDegrees, worldAxis);
+        }
+
+        private static Vector3 ProjectPointerToArcball(Vector2 pointerPosition)
+        {
+            float screenWidth = Mathf.Max(1f, Screen.width);
+            float screenHeight = Mathf.Max(1f, Screen.height);
+            float radius = Mathf.Min(screenWidth, screenHeight) * 0.5f;
+            Vector2 centered = new Vector2(
+                (pointerPosition.x - screenWidth * 0.5f) / radius,
+                (pointerPosition.y - screenHeight * 0.5f) / radius);
+            float lengthSquared = centered.sqrMagnitude;
+            float z;
+
+            if (lengthSquared <= 1f)
+            {
+                z = Mathf.Sqrt(1f - lengthSquared);
+            }
+            else
+            {
+                centered.Normalize();
+                z = 0f;
+            }
+
+            return new Vector3(centered.x, centered.y, z).normalized;
+        }
+
         private void UpdateRotation(float deltaTime)
         {
             if (deltaTime <= 0f)
             {
                 return;
+            }
+
+            if (!dragActive && enableReleaseInertia && releaseAngularVelocity.sqrMagnitude > 1e-6f)
+            {
+                float spinStepRadians = releaseAngularVelocity.magnitude * deltaTime;
+                if (spinStepRadians > 1e-6f)
+                {
+                    Quaternion inertiaRotation = Quaternion.AngleAxis(
+                        spinStepRadians * Mathf.Rad2Deg,
+                        releaseAngularVelocity.normalized);
+                    targetRotation = inertiaRotation * targetRotation;
+                }
+
+                releaseAngularVelocity = Vector3.MoveTowards(
+                    releaseAngularVelocity,
+                    Vector3.zero,
+                    releaseInertiaDeceleration * deltaTime);
             }
 
             Quaternion currentRotation = GetCurrentRotation();
@@ -226,6 +310,7 @@ namespace Liquid
             commandedRotation = initialRotation;
             targetRotation = initialRotation;
             previousAngularVelocity = Vector3.zero;
+            releaseAngularVelocity = Vector3.zero;
             AngularVelocity = Vector3.zero;
             AngularAcceleration = Vector3.zero;
             dragActive = false;
@@ -267,8 +352,17 @@ namespace Liquid
             targetRotation = referenceRotation;
             initialRotation = referenceRotation;
             previousAngularVelocity = Vector3.zero;
+            releaseAngularVelocity = Vector3.zero;
             AngularVelocity = Vector3.zero;
             AngularAcceleration = Vector3.zero;
+        }
+
+        public void ConfigureReleaseInertia(bool enabled, float carry, float deceleration)
+        {
+            enableReleaseInertia = enabled;
+            releaseInertiaCarry = Mathf.Clamp01(carry);
+            releaseInertiaDeceleration = Mathf.Max(0.01f, deceleration);
+            releaseAngularVelocity = Vector3.zero;
         }
 
         public void ConfigureTarget(Transform newTargetTransform, Rigidbody newTargetRigidbody, bool shouldApplyRotation)

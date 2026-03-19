@@ -1,0 +1,41 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: PrototypeRefractionTestFace
+  m_Shader: {fileID: 4800000, guid: 5df42576c95594c40abd7c9ae8b9daf2, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: 2000
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties: 
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs: []
+    m_Ints: []
+    m_Floats:
+    - _CheckerFrequency: 10
+    - _FaceScale: 0.78
+    - _OutlineThickness: 0.028
+    - _StripeFrequency: 20
+    - _StripeMix: 0.78
+    m_Colors:
+    - _AccentColor: {r: 1, g: 0.62, b: 0, a: 1}
+    - _BackgroundColor: {r: 0.98, g: 0.98, b: 0.98, a: 1}
+    - _BaseColor: {r: 0.94, g: 0.96, b: 0.98, a: 1}
+    - _FaceColor: {r: 1, g: 0.87, b: 0.18, a: 1}
+    - _FeatureColor: {r: 0.08, g: 0.08, b: 0.1, a: 1}
+    - _StripeColor: {r: 0.08, g: 0.08, b: 0.1, a: 1}
+  m_BuildTextureStacks: []
+  m_AllowLocking: 1
