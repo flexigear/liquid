@@ -50,6 +50,13 @@
       "summary": "Trackball container control model and how it should feed fluid simulation."
     },
     {
+      "path": "memory/30-prototype/unity-zibra-prototype.md",
+      "layer": "prototype",
+      "priority": 96,
+      "tags": ["prototype", "unity", "zibra", "gpu", "liquid", "urp", "c#", "mobile"],
+      "summary": "Chosen Unity plus Zibra implementation path for the first GPU-driven liquid prototype."
+    },
+    {
       "path": "memory/30-prototype/web-prototype-implementation.md",
       "layer": "prototype",
       "priority": 91,
@@ -60,7 +67,7 @@
       "path": "memory/90-active/current-context.md",
       "layer": "active",
       "priority": 110,
-      "tags": ["active", "current", "next", "prototype", "physics", "input", "web"],
+      "tags": ["active", "current", "next", "prototype", "physics", "input", "web", "unity", "zibra"],
       "summary": "Current working context, open questions, and next tasks."
     }
   ]

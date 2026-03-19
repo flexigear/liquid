@@ -32,16 +32,20 @@ dist/
 build/
 out/
 
-# Future Unity prototype project under prototype/unity
-/prototype/unity/[Ll]ibrary/
-/prototype/unity/[Tt]emp/
-/prototype/unity/[Oo]bj/
-/prototype/unity/[Bb]uild/
-/prototype/unity/[Bb]uilds/
-/prototype/unity/[Ll]ogs/
-/prototype/unity/[Uu]serSettings/
-/prototype/unity/MemoryCaptures/
+# Future Unity prototype project under prototype/engine/unity
+/prototype/engine/unity/[Ll]ibrary/
+/prototype/engine/unity/[Tt]emp/
+/prototype/engine/unity/[Oo]bj/
+/prototype/engine/unity/[Bb]uild/
+/prototype/engine/unity/[Bb]uilds/
+/prototype/engine/unity/[Ll]ogs/
+/prototype/engine/unity/[Uu]serSettings/
+/prototype/engine/unity/MemoryCaptures/
+/prototype/engine/unity/Assets/_Recovery/
+/prototype/engine/unity/Assets/_Recovery.meta
+/prototype/engine/unity/Assets/Plugins/Zibra/
+/prototype/engine/unity/Assets/Plugins/Zibra.meta
 
-# Future Godot prototype project under prototype/godot
-/prototype/godot/.godot/
-/prototype/godot/export_presets.cfg
+# Future Godot prototype project under prototype/engine/godot
+/prototype/engine/godot/.godot/
+/prototype/engine/godot/export_presets.cfg

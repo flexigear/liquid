@@ -1,6 +1,10 @@
 ﻿# Web Prototype Implementation
 ## Purpose
-Record what the current dependency-free browser prototype actually simulates, so later iterations can keep or replace its assumptions deliberately.
+Record what the dependency-free browser prototype actually simulates, so later iterations can keep or replace its assumptions deliberately.
+## Status
+- This prototype has completed its role as the minimum testable hand-feel baseline.
+- It remains useful as a behavior reference during migration to a heavier simulation stack.
+- It is no longer the primary path for achieving realistic liquid behavior.
 ## Current Stack
 - Plain HTML, CSS, and JavaScript
 - Canvas 2D rendering
