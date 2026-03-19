@@ -31,6 +31,12 @@ __pycache__/
 dist/
 build/
 out/
+.experiments/
+input/
+output/
+output_backup/
+restart/
+tools/__pycache__/
 
 # Future Unity prototype project under prototype/engine/unity
 /prototype/engine/unity/[Ll]ibrary/
@@ -45,6 +51,11 @@ out/
 /prototype/engine/unity/Assets/_Recovery.meta
 /prototype/engine/unity/Assets/Plugins/Zibra/
 /prototype/engine/unity/Assets/Plugins/Zibra.meta
+/prototype/engine/unity/Assets/StreamingAssets/SPlisHSPlasH/*/export_*/
+/prototype/engine/unity/Assets/StreamingAssets/SPlisHSPlasH/*/raw/
+/prototype/engine/unity/Assets/StreamingAssets/SPlisHSPlasH/*/raw.meta
+/prototype/engine/unity/native/**/build/
+/prototype/engine/unity/native/**/build-v*/
 
 # Future Godot prototype project under prototype/engine/godot
 /prototype/engine/godot/.godot/

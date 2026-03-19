@@ -8,5 +8,11 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/SquareContainerPrototype.unity
     guid: 4c63835ba77ce8d408ccbb69a808d700
+  - enabled: 1
+    path: Assets/Scenes/SPlisHSPlasHPlaybackPrototype.unity
+    guid: d169d9b6e3c2dd44aa4f16c48daf1edb
+  - enabled: 1
+    path: Assets/Scenes/SPlisHSPlasHRealtimePrototype.unity
+    guid: 596ee5e3643c1284bbe6211ba29cea14
   m_configObjects: {}
   m_UseUCBPForAssetBundles: 0

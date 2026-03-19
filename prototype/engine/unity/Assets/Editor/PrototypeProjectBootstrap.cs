@@ -19,16 +19,22 @@ namespace Liquid.Editor
     {
         private const string SceneDirectory = "Assets/Scenes";
         private const string ScenePath = "Assets/Scenes/SquareContainerPrototype.unity";
+        private const string SPlisHSPlasHPlaybackScenePath = "Assets/Scenes/SPlisHSPlasHPlaybackPrototype.unity";
+        private const string SPlisHSPlasHRealtimeScenePath = "Assets/Scenes/SPlisHSPlasHRealtimePrototype.unity";
         private const string UrpGlobalSettingsPath = "Assets/UniversalRenderPipelineGlobalSettings.asset";
         private const string RendererAssetPath = "Assets/Settings/LiquidPrototypeURP_Renderer.asset";
         private const string GlassMaterialPath = "Assets/Materials/PrototypeGlass.mat";
         private const string FrameMaterialPath = "Assets/Materials/PrototypeFrame.mat";
         private const string MarkerMaterialPath = "Assets/Materials/PrototypeLiquidMarker.mat";
         private const string ReflectionCardMaterialPath = "Assets/Materials/PrototypeReflectionCard.mat";
+        private const string PlaybackParticleMaterialPath = "Assets/Materials/PrototypePlaybackParticle.mat";
+        private const string FluidMaskParticleMaterialPath = "Assets/Materials/PrototypeFluidMaskParticle.mat";
+        private const string FluidSurfaceCompositeMaterialPath = "Assets/Materials/PrototypeFluidSurfaceComposite.mat";
         private const string ZibraMaterialPresetPath =
             "Assets/Plugins/Zibra/Liquid/Presets/URP/DefaultSampleSceneURPMaterialParameters.preset";
         private const string ZibraSolverPresetPath =
             "Assets/Plugins/Zibra/Liquid/Presets/Solver/DefaultSampleSceneSolverParameters.preset";
+        private const string SPlisHSPlasHCacheDirectory = "SPlisHSPlasH/LiquidCubeShake/cache";
         private static readonly Vector3 ContainerInnerSize = new Vector3(2f, 2f, 2f);
         private const float WallThickness = 0.025f;
         private const float GlassVisualInset = 0.02f;
@@ -47,6 +53,28 @@ namespace Liquid.Editor
             AssetDatabase.Refresh();
         }
 
+        [MenuItem("Liquid/Bootstrap/Setup SPlisHSPlasH Playback Scene")]
+        public static void SetupSPlisHSPlasHPlaybackScene()
+        {
+            EnsureFolders();
+            EnsureUrpPackage();
+            EnsureUrpCompatibilityDefine();
+            ConfigureUrp();
+            CreateSPlisHSPlasHPlaybackScene();
+            AssetDatabase.Refresh();
+        }
+
+        [MenuItem("Liquid/Bootstrap/Setup SPlisHSPlasH Realtime Scene")]
+        public static void SetupSPlisHSPlasHRealtimeScene()
+        {
+            EnsureFolders();
+            EnsureUrpPackage();
+            EnsureUrpCompatibilityDefine();
+            ConfigureUrp();
+            CreateSPlisHSPlasHRealtimeScene();
+            AssetDatabase.Refresh();
+        }
+
         public static void SetupProjectFromBatch()
         {
             SetupProject();
@@ -59,6 +87,7 @@ namespace Liquid.Editor
             EnsureFolder(SceneDirectory);
             EnsureFolder("Assets/Scripts");
             EnsureFolder("Assets/Settings");
+            EnsureFolder("Assets/StreamingAssets");
         }
 
         private static void EnsureFolder(string assetPath)
@@ -196,8 +225,12 @@ namespace Liquid.Editor
             sessionObject.AddComponent<PrototypeLiquidDebugOverlay>();
 
             GameObject pivot = new GameObject("ContainerPivot");
-            TrackballContainerController trackballController = pivot.AddComponent<TrackballContainerController>();
+            AddKinematicPivotRigidbody(pivot);
             orbitCameraController.SetTarget(pivot.transform);
+
+            GameObject commandObject = new GameObject("ContainerCommand");
+            commandObject.transform.SetPositionAndRotation(pivot.transform.position, pivot.transform.rotation);
+            TrackballContainerController trackballController = commandObject.AddComponent<TrackballContainerController>();
 
             GameObject containerRoot = new GameObject("SquareGlassContainer");
             containerRoot.transform.SetParent(pivot.transform, false);
@@ -226,10 +259,152 @@ namespace Liquid.Editor
             sessionController.CaptureCurrentAsInitialState();
 
             EditorSceneManager.SaveScene(scene, ScenePath, true);
-            EditorBuildSettings.scenes = new[]
-            {
-                new EditorBuildSettingsScene(ScenePath, true),
-            };
+            SetEditorBuildScenes(ScenePath, SPlisHSPlasHPlaybackScenePath, SPlisHSPlasHRealtimeScenePath);
+        }
+
+        private static void CreateSPlisHSPlasHPlaybackScene()
+        {
+            Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            Material glassMaterial = EnsureGlassMaterial();
+            Material frameMaterial = EnsureFrameMaterial();
+            Material reflectionCardMaterial = EnsureReflectionCardMaterial();
+            Material playbackParticleMaterial = EnsurePlaybackParticleMaterial();
+
+            RenderSettings.ambientMode = AmbientMode.Trilight;
+            RenderSettings.ambientSkyColor = new Color(0.62f, 0.68f, 0.76f);
+            RenderSettings.ambientEquatorColor = new Color(0.32f, 0.36f, 0.42f);
+            RenderSettings.ambientGroundColor = new Color(0.12f, 0.14f, 0.16f);
+            RenderSettings.reflectionIntensity = 1.15f;
+
+            GameObject lightObject = new GameObject("Directional Light");
+            Light directionalLight = lightObject.AddComponent<Light>();
+            directionalLight.type = LightType.Directional;
+            directionalLight.intensity = 1.35f;
+            directionalLight.shadows = LightShadows.Soft;
+            lightObject.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
+
+            GameObject cameraObject = new GameObject("Main Camera");
+            Camera camera = cameraObject.AddComponent<Camera>();
+            PrototypeOrbitCameraController orbitCameraController = cameraObject.AddComponent<PrototypeOrbitCameraController>();
+            camera.tag = "MainCamera";
+            camera.clearFlags = CameraClearFlags.SolidColor;
+            camera.backgroundColor = new Color(0.07f, 0.09f, 0.11f);
+            camera.nearClipPlane = 0.03f;
+            camera.cullingMask &= ~(1 << ReflectionOnlyLayer);
+            cameraObject.transform.position = new Vector3(0f, 0.2f, -5.4f);
+            cameraObject.transform.LookAt(Vector3.zero);
+
+            GameObject reflectionProbeObject = new GameObject("PrototypeReflectionProbe");
+            ReflectionProbe reflectionProbe = reflectionProbeObject.AddComponent<ReflectionProbe>();
+            reflectionProbe.mode = ReflectionProbeMode.Realtime;
+            reflectionProbe.refreshMode = ReflectionProbeRefreshMode.OnAwake;
+            reflectionProbe.timeSlicingMode = ReflectionProbeTimeSlicingMode.AllFacesAtOnce;
+            reflectionProbe.size = new Vector3(8f, 8f, 8f);
+            reflectionProbe.boxProjection = true;
+            reflectionProbe.intensity = 1.2f;
+            BuildReflectionRig(reflectionProbeObject.transform, reflectionCardMaterial);
+
+            GameObject sessionObject = new GameObject("PrototypeSession");
+            PrototypeSessionController sessionController = sessionObject.AddComponent<PrototypeSessionController>();
+
+            GameObject pivot = new GameObject("ContainerPivot");
+            orbitCameraController.SetTarget(pivot.transform);
+
+            GameObject containerRoot = new GameObject("SquareGlassContainer");
+            containerRoot.transform.SetParent(pivot.transform, false);
+            BuildSquareGlassContainer(containerRoot.transform, glassMaterial);
+            BuildCubeFrame(containerRoot.transform, frameMaterial);
+
+            GameObject playbackObject = new GameObject("SPlisHSPlasHPlayback");
+            SPlisHSPlasHPlaybackController playbackController = playbackObject.AddComponent<SPlisHSPlasHPlaybackController>();
+            playbackController.Configure(SPlisHSPlasHCacheDirectory, pivot.transform, playbackParticleMaterial);
+
+            orbitCameraController.CaptureCurrentAsInitialState();
+            sessionController.CaptureCurrentAsInitialState();
+
+            EditorSceneManager.SaveScene(scene, SPlisHSPlasHPlaybackScenePath, true);
+            SetEditorBuildScenes(ScenePath, SPlisHSPlasHPlaybackScenePath, SPlisHSPlasHRealtimeScenePath);
+        }
+
+        private static void CreateSPlisHSPlasHRealtimeScene()
+        {
+            Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            Material glassMaterial = EnsureGlassMaterial();
+            Material frameMaterial = EnsureFrameMaterial();
+            Material reflectionCardMaterial = EnsureReflectionCardMaterial();
+            Material fluidMaskParticleMaterial = EnsureFluidMaskParticleMaterial();
+            Material fluidSurfaceCompositeMaterial = EnsureFluidSurfaceCompositeMaterial();
+
+            RenderSettings.ambientMode = AmbientMode.Trilight;
+            RenderSettings.ambientSkyColor = new Color(0.62f, 0.68f, 0.76f);
+            RenderSettings.ambientEquatorColor = new Color(0.32f, 0.36f, 0.42f);
+            RenderSettings.ambientGroundColor = new Color(0.12f, 0.14f, 0.16f);
+            RenderSettings.reflectionIntensity = 1.15f;
+
+            GameObject lightObject = new GameObject("Directional Light");
+            Light directionalLight = lightObject.AddComponent<Light>();
+            directionalLight.type = LightType.Directional;
+            directionalLight.intensity = 1.35f;
+            directionalLight.shadows = LightShadows.Soft;
+            lightObject.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
+
+            GameObject cameraObject = new GameObject("Main Camera");
+            Camera camera = cameraObject.AddComponent<Camera>();
+            PrototypeOrbitCameraController orbitCameraController = cameraObject.AddComponent<PrototypeOrbitCameraController>();
+            camera.tag = "MainCamera";
+            camera.clearFlags = CameraClearFlags.SolidColor;
+            camera.backgroundColor = new Color(0.07f, 0.09f, 0.11f);
+            camera.nearClipPlane = 0.03f;
+            camera.cullingMask &= ~(1 << ReflectionOnlyLayer);
+            cameraObject.transform.position = new Vector3(0f, 0.2f, -5.4f);
+            cameraObject.transform.LookAt(Vector3.zero);
+
+            GameObject reflectionProbeObject = new GameObject("PrototypeReflectionProbe");
+            ReflectionProbe reflectionProbe = reflectionProbeObject.AddComponent<ReflectionProbe>();
+            reflectionProbe.mode = ReflectionProbeMode.Realtime;
+            reflectionProbe.refreshMode = ReflectionProbeRefreshMode.OnAwake;
+            reflectionProbe.timeSlicingMode = ReflectionProbeTimeSlicingMode.AllFacesAtOnce;
+            reflectionProbe.size = new Vector3(8f, 8f, 8f);
+            reflectionProbe.boxProjection = true;
+            reflectionProbe.intensity = 1.2f;
+            BuildReflectionRig(reflectionProbeObject.transform, reflectionCardMaterial);
+
+            GameObject sessionObject = new GameObject("PrototypeSession");
+            PrototypeSessionController sessionController = sessionObject.AddComponent<PrototypeSessionController>();
+
+            GameObject pivot = new GameObject("ContainerPivot");
+            AddKinematicPivotRigidbody(pivot);
+            orbitCameraController.SetTarget(pivot.transform);
+
+            GameObject commandObject = new GameObject("ContainerCommand");
+            commandObject.transform.SetPositionAndRotation(pivot.transform.position, pivot.transform.rotation);
+            TrackballContainerController trackballController = commandObject.AddComponent<TrackballContainerController>();
+
+            GameObject containerRoot = new GameObject("SquareGlassContainer");
+            containerRoot.transform.SetParent(pivot.transform, false);
+            BuildSquareGlassContainer(containerRoot.transform, glassMaterial);
+            BuildCubeFrame(containerRoot.transform, frameMaterial);
+
+            GameObject realtimeObject = new GameObject("SPlisHSPlasHRealtime");
+            SPlisHSPlasHRealtimeController realtimeController = realtimeObject.AddComponent<SPlisHSPlasHRealtimeController>();
+            SPlisHSPlasHFluidSurfaceRenderer fluidSurfaceRenderer = realtimeObject.AddComponent<SPlisHSPlasHFluidSurfaceRenderer>();
+            SerializedObject realtimeControllerObject = new SerializedObject(realtimeController);
+            realtimeControllerObject.FindProperty("particleMaterial").objectReferenceValue = fluidMaskParticleMaterial;
+            realtimeControllerObject.FindProperty("containerPivot").objectReferenceValue = pivot.transform;
+            realtimeControllerObject.FindProperty("containerController").objectReferenceValue = trackballController;
+            realtimeControllerObject.ApplyModifiedPropertiesWithoutUndo();
+            SerializedObject fluidSurfaceRendererObject = new SerializedObject(fluidSurfaceRenderer);
+            fluidSurfaceRendererObject.FindProperty("sourceController").objectReferenceValue = realtimeController;
+            fluidSurfaceRendererObject.FindProperty("mainCamera").objectReferenceValue = camera;
+            fluidSurfaceRendererObject.FindProperty("fluidMaskMaterial").objectReferenceValue = fluidMaskParticleMaterial;
+            fluidSurfaceRendererObject.FindProperty("fluidSurfaceMaterial").objectReferenceValue = fluidSurfaceCompositeMaterial;
+            fluidSurfaceRendererObject.ApplyModifiedPropertiesWithoutUndo();
+
+            orbitCameraController.CaptureCurrentAsInitialState();
+            sessionController.CaptureCurrentAsInitialState();
+
+            EditorSceneManager.SaveScene(scene, SPlisHSPlasHRealtimeScenePath, true);
+            SetEditorBuildScenes(ScenePath, SPlisHSPlasHPlaybackScenePath, SPlisHSPlasHRealtimeScenePath);
         }
 
         private static void ConfigureUrp()
@@ -245,12 +420,33 @@ namespace Liquid.Editor
 
             EnsureDefaultRenderer(pipelineAsset);
             pipelineAsset.supportsCameraDepthTexture = true;
+            pipelineAsset.supportsCameraOpaqueTexture = true;
             EnsureZibraUrpRenderFeature();
             EnsureUrpCompatibilityMode();
             GraphicsSettings.defaultRenderPipeline = pipelineAsset;
             AssignPipelineToAllQualityLevels(pipelineAsset);
             EditorUtility.SetDirty(pipelineAsset);
             AssetDatabase.SaveAssets();
+        }
+
+        private static void AddKinematicPivotRigidbody(GameObject pivot)
+        {
+            if (pivot == null)
+            {
+                return;
+            }
+
+            Rigidbody rigidbody = pivot.GetComponent<Rigidbody>();
+            if (rigidbody == null)
+            {
+                rigidbody = pivot.AddComponent<Rigidbody>();
+            }
+
+            rigidbody.isKinematic = true;
+            rigidbody.useGravity = false;
+            rigidbody.interpolation = RigidbodyInterpolation.Interpolate;
+            rigidbody.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
+            rigidbody.constraints = RigidbodyConstraints.FreezePosition;
         }
 
         private static void EnsureUrpCompatibilityMode()
@@ -432,6 +628,75 @@ namespace Liquid.Editor
                     material.SetFloat("_Blend", 0f);
                     material.SetFloat("_Cull", 0f);
                     material.renderQueue = (int)RenderQueue.Geometry;
+                });
+        }
+
+        private static Material EnsurePlaybackParticleMaterial()
+        {
+            return EnsureMaterialAsset(
+                PlaybackParticleMaterialPath,
+                "Prototype/SPlisHSPlasHWaterParticle",
+                material =>
+                {
+                    material.SetColor("_BaseColor", new Color(0.78f, 0.92f, 1.0f, 0.18f));
+                    material.SetColor("_ShallowColor", new Color(0.72f, 0.93f, 1.0f, 1.0f));
+                    material.SetColor("_DeepColor", new Color(0.07f, 0.30f, 0.44f, 1.0f));
+                    material.SetColor("_SpecularColor", Color.white);
+                    material.SetFloat("_TintStrength", 0.28f);
+                    material.SetFloat("_RefractionStrength", 0.018f);
+                    material.SetFloat("_FresnelPower", 4.2f);
+                    material.SetFloat("_BodyFalloff", 1.55f);
+                    material.SetFloat("_HighlightStrength", 1.2f);
+                    material.SetFloat("_HighlightExponent", 54f);
+                    material.SetFloat("_AlphaBoost", 1.35f);
+                    material.SetFloat("_Cull", 0f);
+                    material.SetFloat("_ZWrite", 0f);
+                    material.SetOverrideTag("RenderType", "Transparent");
+                    material.renderQueue = (int)RenderQueue.Transparent;
+                });
+        }
+
+        private static Material EnsureFluidMaskParticleMaterial()
+        {
+            return EnsureMaterialAsset(
+                FluidMaskParticleMaterialPath,
+                "Prototype/SPlisHSPlasHFluidMaskParticle",
+                material =>
+                {
+                    material.SetFloat("_MaskStrength", 1.0f);
+                    material.SetFloat("_BodyFalloff", 1.4f);
+                    material.SetFloat("_Cull", 0f);
+                    material.SetFloat("_ZWrite", 0f);
+                    material.SetOverrideTag("RenderType", "Transparent");
+                    material.renderQueue = (int)RenderQueue.Transparent;
+                });
+        }
+
+        private static Material EnsureFluidSurfaceCompositeMaterial()
+        {
+            return EnsureMaterialAsset(
+                FluidSurfaceCompositeMaterialPath,
+                "Prototype/SPlisHSPlasHFluidSurfaceComposite",
+                material =>
+                {
+                    material.SetColor("_ShallowColor", new Color(0.74f, 0.94f, 1.0f, 1.0f));
+                    material.SetColor("_DeepColor", new Color(0.08f, 0.28f, 0.42f, 1.0f));
+                    material.SetColor("_SpecularColor", Color.white);
+                    material.SetFloat("_Threshold", 0.22f);
+                    material.SetFloat("_Softness", 0.18f);
+                    material.SetFloat("_BlurScale", 1.35f);
+                    material.SetFloat("_NormalStrength", 4.2f);
+                    material.SetFloat("_RefractionStrength", 0.018f);
+                    material.SetFloat("_TintStrength", 0.24f);
+                    material.SetFloat("_AbsorptionStrength", 0.7f);
+                    material.SetFloat("_BaseAlpha", 0.28f);
+                    material.SetFloat("_FresnelPower", 4.0f);
+                    material.SetFloat("_HighlightStrength", 1.2f);
+                    material.SetFloat("_HighlightExponent", 52f);
+                    material.SetFloat("_Cull", 0f);
+                    material.SetFloat("_ZWrite", 0f);
+                    material.SetOverrideTag("RenderType", "Transparent");
+                    material.renderQueue = (int)RenderQueue.Transparent - 10;
                 });
         }
 
@@ -722,6 +987,27 @@ namespace Liquid.Editor
             {
                 SetLayerRecursively(child.gameObject, layer);
             }
+        }
+
+        private static void SetEditorBuildScenes(params string[] scenePaths)
+        {
+            var scenes = new System.Collections.Generic.List<EditorBuildSettingsScene>();
+            foreach (string scenePath in scenePaths)
+            {
+                if (string.IsNullOrWhiteSpace(scenePath))
+                {
+                    continue;
+                }
+
+                if (!File.Exists(Path.GetFullPath(scenePath)))
+                {
+                    continue;
+                }
+
+                scenes.Add(new EditorBuildSettingsScene(scenePath, true));
+            }
+
+            EditorBuildSettings.scenes = scenes.ToArray();
         }
 
         private static void EnsureZibraUrpRenderFeature()

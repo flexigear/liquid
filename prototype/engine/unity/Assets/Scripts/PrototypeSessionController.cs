@@ -7,6 +7,8 @@ namespace Liquid
     {
         [SerializeField] private TrackballContainerController containerController;
         [SerializeField] private PrototypeOrbitCameraController cameraOrbitController;
+        [SerializeField] private SPlisHSPlasHPlaybackController splisHSPlasHPlaybackController;
+        [SerializeField] private SPlisHSPlasHRealtimeController splisHSPlasHRealtimeController;
         [SerializeField] private Transform cameraTransform;
         [SerializeField] private KeyCode resetKey = KeyCode.R;
         [SerializeField] private KeyCode reloadSceneKey = KeyCode.F5;
@@ -75,6 +77,16 @@ namespace Liquid
             {
                 containerController.ResetContainerState();
             }
+
+            if (splisHSPlasHPlaybackController != null)
+            {
+                splisHSPlasHPlaybackController.ResetPlayback();
+            }
+
+            if (splisHSPlasHRealtimeController != null)
+            {
+                splisHSPlasHRealtimeController.ResetSimulation();
+            }
         }
 
         public void ReloadActiveScene()
@@ -103,6 +115,16 @@ namespace Liquid
             if (cameraTransform == null && Camera.main != null)
             {
                 cameraTransform = Camera.main.transform;
+            }
+
+            if (splisHSPlasHPlaybackController == null)
+            {
+                splisHSPlasHPlaybackController = FindFirstObjectByType<SPlisHSPlasHPlaybackController>();
+            }
+
+            if (splisHSPlasHRealtimeController == null)
+            {
+                splisHSPlasHRealtimeController = FindFirstObjectByType<SPlisHSPlasHRealtimeController>();
             }
         }
     }

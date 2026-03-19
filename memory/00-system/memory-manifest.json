@@ -22,6 +22,20 @@
       "summary": "Reference games, their relevance, and what to borrow or avoid."
     },
     {
+      "path": "memory/11-research/technical-surveys.md",
+      "layer": "research",
+      "priority": 56,
+      "tags": ["research", "survey", "technical", "solver", "implementation", "comparison"],
+      "summary": "Index of technical problem surveys, with a rule to capture future implementation-option comparisons."
+    },
+    {
+      "path": "memory/11-research/high-speed-fluid-solid-coupling-survey.md",
+      "layer": "research",
+      "priority": 58,
+      "tags": ["research", "survey", "fluid", "solid", "coupling", "high-speed", "sealed-container", "poc"],
+      "summary": "Survey of candidate solver paths for preventing leakage in a violently shaken sealed liquid container."
+    },
+    {
       "path": "memory/20-design/core-gameplay-loop.md",
       "layer": "design",
       "priority": 85,
@@ -55,6 +69,13 @@
       "priority": 96,
       "tags": ["prototype", "unity", "zibra", "gpu", "liquid", "urp", "c#", "mobile"],
       "summary": "Chosen Unity plus Zibra implementation path for the first GPU-driven liquid prototype."
+    },
+    {
+      "path": "memory/30-prototype/unity-splishsplash-prototype.md",
+      "layer": "prototype",
+      "priority": 97,
+      "tags": ["prototype", "unity", "splishsplash", "sph", "sealed-container", "native-bridge", "liquid", "rendering"],
+      "summary": "Current Unity plus SPlisHSPlasH implementation path for stricter sealed-container behavior, including the native bridge, current visual stack, and known pitfalls."
     },
     {
       "path": "memory/30-prototype/web-prototype-implementation.md",
