@@ -218,6 +218,7 @@ namespace Liquid.Editor
             GameObject collisionRoot = replacement;
             if (scenePath == Text1ScenePath)
             {
+                // text1 is stable only when Zibra collides against the extracted inner shell, not the full double-wall display mesh.
                 Mesh colliderMesh = CreateOrUpdateText1ColliderMeshAsset(prefab);
                 GameObject colliderRoot = PrefabUtility.InstantiatePrefab(prefab, scene) as GameObject;
                 if (colliderRoot == null)
@@ -261,6 +262,7 @@ namespace Liquid.Editor
                 neuralSdf = targetMeshFilter.gameObject.AddComponent<NeuralSDF>();
             }
 
+            // The extracted inner shell from test1.STL has inward-facing orientation, so Zibra must invert the SDF to keep liquid inside.
             neuralSdf.InvertSDF = true;
             neuralSdf.SurfaceDistance = 0.0f;
             collider.Friction = 0.85f;
