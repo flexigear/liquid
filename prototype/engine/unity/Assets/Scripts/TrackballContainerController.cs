@@ -16,12 +16,12 @@ namespace Liquid
         [SerializeField] private Rigidbody targetRigidbody;
         [SerializeField] private bool applyRotationToTarget = true;
         [SerializeField] private RotationMode rotationMode = RotationMode.WorldYawPitch;
-        [SerializeField] private float dragSensitivity = 0.24f;
-        [SerializeField] private float maxAngularSpeed = 8f;
-        [SerializeField] private float maxAngularAcceleration = 40f;
+        [SerializeField] private float dragSensitivity = 0.18f;
+        [SerializeField] private float maxAngularSpeed = 4f;
+        [SerializeField] private float maxAngularAcceleration = 30f;
         [SerializeField] private bool enableReleaseInertia;
-        [SerializeField] private float releaseInertiaCarry = 0.3f;
-        [SerializeField] private float releaseInertiaDeceleration = 18f;
+        [SerializeField] private float releaseInertiaCarry = 0.08f;
+        [SerializeField] private float releaseInertiaDeceleration = 12f;
 
         private Quaternion targetRotation;
         private Quaternion commandedRotation;
@@ -105,7 +105,9 @@ namespace Liquid
             {
                 if (dragActive && enableReleaseInertia)
                 {
-                    releaseAngularVelocity = AngularVelocity * Mathf.Clamp01(releaseInertiaCarry);
+                    releaseAngularVelocity = Vector3.ClampMagnitude(
+                        AngularVelocity * Mathf.Clamp01(releaseInertiaCarry),
+                        maxAngularSpeed);
                 }
 
                 dragActive = false;
@@ -126,13 +128,17 @@ namespace Liquid
 
             if (delta.sqrMagnitude < 0.0001f)
             {
+                UpdateAngularState(GetCurrentRotation(), GetCurrentRotation(), Mathf.Max(Time.deltaTime, 1e-6f));
                 return;
             }
+
+            Quaternion currentRotation = GetCurrentRotation();
 
             if (rotationMode == RotationMode.WorldYawPitch)
             {
                 Quaternion arcballRotation = ComputeArcballRotation(previousPointer, previousPointerPosition);
                 targetRotation = arcballRotation * targetRotation;
+                ApplyDragRotationImmediately(currentRotation);
                 return;
             }
 
@@ -159,6 +165,7 @@ namespace Liquid
             Quaternion horizontalRotation = Quaternion.AngleAxis(-delta.x * dragSensitivity, horizontalAxis.normalized);
             Quaternion verticalRotation = Quaternion.AngleAxis(delta.y * dragSensitivity, verticalAxis.normalized);
             targetRotation = horizontalRotation * verticalRotation * targetRotation;
+            ApplyDragRotationImmediately(currentRotation);
         }
 
         private Quaternion ComputeArcballRotation(Vector2 previousPointer, Vector2 currentPointer)
@@ -213,6 +220,12 @@ namespace Liquid
         {
             if (deltaTime <= 0f)
             {
+                return;
+            }
+
+            if (dragActive)
+            {
+                commandedRotation = targetRotation;
                 return;
             }
 
@@ -341,6 +354,62 @@ namespace Liquid
             }
 
             targetTransform.rotation = rotation;
+        }
+
+        private void ApplyDragRotationImmediately(Quaternion previousRotation)
+        {
+            ApplyImmediateRotation(targetRotation);
+            commandedRotation = targetRotation;
+            UpdateAngularState(previousRotation, targetRotation, Mathf.Max(Time.deltaTime, 1e-6f));
+        }
+
+        private void ApplyImmediateRotation(Quaternion rotation)
+        {
+            if (!applyRotationToTarget)
+            {
+                return;
+            }
+
+            if (targetRigidbody != null && targetRigidbody.isKinematic)
+            {
+                targetRigidbody.rotation = rotation;
+                return;
+            }
+
+            ApplyRotation(rotation);
+        }
+
+        private void UpdateAngularState(Quaternion fromRotation, Quaternion toRotation, float deltaTime)
+        {
+            if (deltaTime <= 0f)
+            {
+                AngularVelocity = Vector3.zero;
+                AngularAcceleration = Vector3.zero;
+                previousAngularVelocity = Vector3.zero;
+                return;
+            }
+
+            Quaternion deltaRotation = toRotation * Quaternion.Inverse(fromRotation);
+            deltaRotation.ToAngleAxis(out float deltaAngleDegrees, out Vector3 deltaAxis);
+
+            Vector3 newAngularVelocity = Vector3.zero;
+            if (!float.IsNaN(deltaAxis.x) && deltaAxis != Vector3.zero)
+            {
+                if (deltaAngleDegrees > 180f)
+                {
+                    deltaAngleDegrees -= 360f;
+                }
+
+                float deltaAngleRadians = deltaAngleDegrees * Mathf.Deg2Rad;
+                if (Mathf.Abs(deltaAngleRadians) > 1e-6f)
+                {
+                    newAngularVelocity = deltaAxis.normalized * (deltaAngleRadians / deltaTime);
+                }
+            }
+
+            AngularVelocity = newAngularVelocity;
+            AngularAcceleration = (AngularVelocity - previousAngularVelocity) / deltaTime;
+            previousAngularVelocity = AngularVelocity;
         }
 
         public void SetApplyRotationToTarget(bool value)

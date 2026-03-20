@@ -36,21 +36,40 @@ namespace Liquid.Editor
         private const string ZibraSolverPresetPath =
             "Assets/Plugins/Zibra/Liquid/Presets/Solver/DefaultSampleSceneSolverParameters.preset";
         private const string SPlisHSPlasHCacheDirectory = "SPlisHSPlasH/LiquidCubeShake/cache";
-        private static readonly Vector3 ContainerInnerSize = new Vector3(2f, 2f, 2f);
-        private const float WallThickness = 0.025f;
-        private const float GlassVisualInset = 0.02f;
-        private const float ZibraEmitterDisableDelaySeconds = 60.0f;
+        private const float ReferenceContainerInnerEdge = 2.0f;
+        private const float ContainerInnerEdge = 0.15f;
+        private const float WallThickness = 0.002f;
+        private const float TargetWaterVolumeFactor = 0.2f;
+        private const float PrototypeCameraNearClip = 0.003f;
+        private const float PrototypeReflectionProbeNearClip = 0.0225f;
+        private static readonly float PrototypeSceneScale = ContainerInnerEdge / ReferenceContainerInnerEdge;
+        private static readonly Vector3 ContainerInnerSize = Vector3.one * ContainerInnerEdge;
+        private static readonly Vector3 PrototypeCameraPosition = new Vector3(0f, 0.2f, -5.4f) * PrototypeSceneScale;
+        private static readonly Vector3 PrototypeReflectionProbeSize = Vector3.one * (8f * PrototypeSceneScale);
+        private static readonly Vector3 ZibraEmitterLocalPosition = new Vector3(0f, 0.58f, 0f) * PrototypeSceneScale;
+        private static readonly Vector3 ZibraEmitterLocalScale = new Vector3(0.5f, 0.08f, 0.5f) * PrototypeSceneScale;
+        private const float ReferenceSimulationTimeScale = 40.0f;
+        private const float ReferenceEmitterDisableDelaySeconds = 60.0f;
+        private const float ZibraEmitterDisableDelaySeconds = 8.0f;
+        private static readonly float ZibraEmitterVolumePerSimTime =
+            0.002f * PrototypeSceneScale * PrototypeSceneScale * PrototypeSceneScale * TargetWaterVolumeFactor *
+            (ReferenceSimulationTimeScale / ZibraSimulationTimeScale) *
+            (ReferenceEmitterDisableDelaySeconds / ZibraEmitterDisableDelaySeconds);
         private const float ZibraExteriorColliderExtent = 8.0f;
         private const int ZibraMaxParticles = 131072;
         private const float ZibraParticleDensity = 1.0f;
-        private const float ZibraWaterViscosity = 0.48f;
-        private const float ZibraWaterSurfaceTension = 0.24f;
-        private const float ZibraWallFriction = 0.32f;
-        private const float ZibraTrackballDragSensitivity = 0.32f;
-        private const float ZibraTrackballMaxAngularSpeed = 14.0f;
-        private const float ZibraTrackballMaxAngularAcceleration = 140.0f;
-        private const float ZibraTrackballReleaseInertiaCarry = 0.16f;
-        private const float ZibraTrackballReleaseInertiaDeceleration = 6.0f;
+        private const float ZibraWaterViscosity = 0.46f;
+        private const float ZibraWaterSurfaceTension = 0.08f;
+        private const float ZibraWallFriction = 0.85f;
+        private const float ZibraSimulationTimeScale = 40.0f;
+        private const int ZibraSimulationIterationsPerFrame = 4;
+        private const float ZibraMaxAllowedTimestep = 0.08f;
+        private const float ZibraMaximumVelocity = 3.0f;
+        private const float ZibraTrackballDragSensitivity = 0.18f;
+        private const float ZibraTrackballMaxAngularSpeed = 4.0f;
+        private const float ZibraTrackballMaxAngularAcceleration = 30.0f;
+        private const float ZibraTrackballReleaseInertiaCarry = 0.08f;
+        private const float ZibraTrackballReleaseInertiaDeceleration = 12.0f;
         private const int PrototypeMsaaSampleCount = 4;
         private const int ReflectionOnlyLayer = 2;
 
@@ -195,7 +214,6 @@ namespace Liquid.Editor
         {
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             Material glassMaterial = EnsureGlassMaterial();
-            Material frameMaterial = EnsureFrameMaterial();
             Material markerMaterial = EnsureMarkerMaterial();
             Material reflectionCardMaterial = EnsureReflectionCardMaterial();
             Material refractionTestFaceMaterial = EnsureRefractionTestFaceMaterial();
@@ -219,9 +237,9 @@ namespace Liquid.Editor
             camera.tag = "MainCamera";
             camera.clearFlags = CameraClearFlags.SolidColor;
             camera.backgroundColor = new Color(0.07f, 0.09f, 0.11f);
-            camera.nearClipPlane = 0.03f;
+            camera.nearClipPlane = PrototypeCameraNearClip;
             camera.cullingMask &= ~(1 << ReflectionOnlyLayer);
-            cameraObject.transform.position = new Vector3(0f, 0.2f, -5.4f);
+            cameraObject.transform.position = PrototypeCameraPosition;
             cameraObject.transform.LookAt(Vector3.zero);
             ConfigurePrototypeCamera(camera);
 
@@ -230,7 +248,8 @@ namespace Liquid.Editor
             reflectionProbe.mode = ReflectionProbeMode.Realtime;
             reflectionProbe.refreshMode = ReflectionProbeRefreshMode.OnAwake;
             reflectionProbe.timeSlicingMode = ReflectionProbeTimeSlicingMode.AllFacesAtOnce;
-            reflectionProbe.size = new Vector3(8f, 8f, 8f);
+            reflectionProbe.size = PrototypeReflectionProbeSize;
+            reflectionProbe.nearClipPlane = PrototypeReflectionProbeNearClip;
             reflectionProbe.boxProjection = true;
             reflectionProbe.intensity = 1.2f;
             BuildReflectionRig(reflectionProbeObject.transform, reflectionCardMaterial);
@@ -260,7 +279,6 @@ namespace Liquid.Editor
             containerRoot.transform.SetParent(pivot.transform, false);
             BuildSquareGlassContainer(containerRoot.transform, glassMaterial);
             ApplyRefractionTestFace(containerRoot.transform, refractionTestFaceMaterial);
-            BuildCubeFrame(containerRoot.transform, frameMaterial);
 
             bool hasZibraLiquid = TryCreateZibraLiquidSetup(pivot.transform, containerRoot.transform, reflectionProbe);
             if (!hasZibraLiquid)
@@ -268,8 +286,8 @@ namespace Liquid.Editor
                 GameObject marker = GameObject.CreatePrimitive(PrimitiveType.Sphere);
                 marker.name = "LiquidAnchorMarker";
                 marker.transform.SetParent(containerRoot.transform, false);
-                marker.transform.localScale = Vector3.one * 0.34f;
-                marker.transform.localPosition = new Vector3(0f, -0.62f, 0f);
+                marker.transform.localScale = Vector3.one * (0.34f * PrototypeSceneScale);
+                marker.transform.localPosition = new Vector3(0f, -0.62f, 0f) * PrototypeSceneScale;
                 ApplyMaterial(marker, markerMaterial);
                 Collider markerCollider = marker.GetComponent<Collider>();
                 if (markerCollider != null)
@@ -291,7 +309,6 @@ namespace Liquid.Editor
         {
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             Material glassMaterial = EnsureGlassMaterial();
-            Material frameMaterial = EnsureFrameMaterial();
             Material reflectionCardMaterial = EnsureReflectionCardMaterial();
             Material playbackParticleMaterial = EnsurePlaybackParticleMaterial();
 
@@ -314,9 +331,9 @@ namespace Liquid.Editor
             camera.tag = "MainCamera";
             camera.clearFlags = CameraClearFlags.SolidColor;
             camera.backgroundColor = new Color(0.07f, 0.09f, 0.11f);
-            camera.nearClipPlane = 0.03f;
+            camera.nearClipPlane = PrototypeCameraNearClip;
             camera.cullingMask &= ~(1 << ReflectionOnlyLayer);
-            cameraObject.transform.position = new Vector3(0f, 0.2f, -5.4f);
+            cameraObject.transform.position = PrototypeCameraPosition;
             cameraObject.transform.LookAt(Vector3.zero);
             ConfigurePrototypeCamera(camera);
 
@@ -325,7 +342,8 @@ namespace Liquid.Editor
             reflectionProbe.mode = ReflectionProbeMode.Realtime;
             reflectionProbe.refreshMode = ReflectionProbeRefreshMode.OnAwake;
             reflectionProbe.timeSlicingMode = ReflectionProbeTimeSlicingMode.AllFacesAtOnce;
-            reflectionProbe.size = new Vector3(8f, 8f, 8f);
+            reflectionProbe.size = PrototypeReflectionProbeSize;
+            reflectionProbe.nearClipPlane = PrototypeReflectionProbeNearClip;
             reflectionProbe.boxProjection = true;
             reflectionProbe.intensity = 1.2f;
             BuildReflectionRig(reflectionProbeObject.transform, reflectionCardMaterial);
@@ -339,7 +357,6 @@ namespace Liquid.Editor
             GameObject containerRoot = new GameObject("SquareGlassContainer");
             containerRoot.transform.SetParent(pivot.transform, false);
             BuildSquareGlassContainer(containerRoot.transform, glassMaterial);
-            BuildCubeFrame(containerRoot.transform, frameMaterial);
 
             GameObject playbackObject = new GameObject("SPlisHSPlasHPlayback");
             SPlisHSPlasHPlaybackController playbackController = playbackObject.AddComponent<SPlisHSPlasHPlaybackController>();
@@ -356,7 +373,6 @@ namespace Liquid.Editor
         {
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             Material glassMaterial = EnsureGlassMaterial();
-            Material frameMaterial = EnsureFrameMaterial();
             Material reflectionCardMaterial = EnsureReflectionCardMaterial();
             Material fluidMaskParticleMaterial = EnsureFluidMaskParticleMaterial();
             Material fluidSurfaceCompositeMaterial = EnsureFluidSurfaceCompositeMaterial();
@@ -380,9 +396,9 @@ namespace Liquid.Editor
             camera.tag = "MainCamera";
             camera.clearFlags = CameraClearFlags.SolidColor;
             camera.backgroundColor = new Color(0.07f, 0.09f, 0.11f);
-            camera.nearClipPlane = 0.03f;
+            camera.nearClipPlane = PrototypeCameraNearClip;
             camera.cullingMask &= ~(1 << ReflectionOnlyLayer);
-            cameraObject.transform.position = new Vector3(0f, 0.2f, -5.4f);
+            cameraObject.transform.position = PrototypeCameraPosition;
             cameraObject.transform.LookAt(Vector3.zero);
             ConfigurePrototypeCamera(camera);
 
@@ -391,7 +407,8 @@ namespace Liquid.Editor
             reflectionProbe.mode = ReflectionProbeMode.Realtime;
             reflectionProbe.refreshMode = ReflectionProbeRefreshMode.OnAwake;
             reflectionProbe.timeSlicingMode = ReflectionProbeTimeSlicingMode.AllFacesAtOnce;
-            reflectionProbe.size = new Vector3(8f, 8f, 8f);
+            reflectionProbe.size = PrototypeReflectionProbeSize;
+            reflectionProbe.nearClipPlane = PrototypeReflectionProbeNearClip;
             reflectionProbe.boxProjection = true;
             reflectionProbe.intensity = 1.2f;
             BuildReflectionRig(reflectionProbeObject.transform, reflectionCardMaterial);
@@ -410,7 +427,6 @@ namespace Liquid.Editor
             GameObject containerRoot = new GameObject("SquareGlassContainer");
             containerRoot.transform.SetParent(pivot.transform, false);
             BuildSquareGlassContainer(containerRoot.transform, glassMaterial);
-            BuildCubeFrame(containerRoot.transform, frameMaterial);
 
             GameObject realtimeObject = new GameObject("SPlisHSPlasHRealtime");
             SPlisHSPlasHRealtimeController realtimeController = realtimeObject.AddComponent<SPlisHSPlasHRealtimeController>();
@@ -798,6 +814,7 @@ namespace Liquid.Editor
 
         private static void BuildSquareGlassContainer(Transform parent, Material glassMaterial)
         {
+            Vector3 outerSize = ContainerInnerSize + Vector3.one * (WallThickness * 2f);
             float halfX = ContainerInnerSize.x * 0.5f;
             float halfY = ContainerInnerSize.y * 0.5f;
             float halfZ = ContainerInnerSize.z * 0.5f;
@@ -807,37 +824,37 @@ namespace Liquid.Editor
                 parent,
                 "Wall_Front",
                 new Vector3(0f, 0f, halfZ + halfThickness),
-                new Vector3(ContainerInnerSize.x + WallThickness * 2f, ContainerInnerSize.y + WallThickness * 2f, WallThickness),
+                new Vector3(outerSize.x, outerSize.y, WallThickness),
                 glassMaterial);
             CreateWall(
                 parent,
                 "Wall_Back",
                 new Vector3(0f, 0f, -(halfZ + halfThickness)),
-                new Vector3(ContainerInnerSize.x + WallThickness * 2f, ContainerInnerSize.y + WallThickness * 2f, WallThickness),
+                new Vector3(outerSize.x, outerSize.y, WallThickness),
                 glassMaterial);
             CreateWall(
                 parent,
                 "Wall_Left",
                 new Vector3(-(halfX + halfThickness), 0f, 0f),
-                new Vector3(WallThickness, ContainerInnerSize.y + WallThickness * 2f, ContainerInnerSize.z),
+                new Vector3(WallThickness, outerSize.y, outerSize.z),
                 glassMaterial);
             CreateWall(
                 parent,
                 "Wall_Right",
                 new Vector3(halfX + halfThickness, 0f, 0f),
-                new Vector3(WallThickness, ContainerInnerSize.y + WallThickness * 2f, ContainerInnerSize.z),
+                new Vector3(WallThickness, outerSize.y, outerSize.z),
                 glassMaterial);
             CreateWall(
                 parent,
                 "Wall_Top",
                 new Vector3(0f, halfY + halfThickness, 0f),
-                new Vector3(ContainerInnerSize.x, WallThickness, ContainerInnerSize.z),
+                new Vector3(outerSize.x, WallThickness, outerSize.z),
                 glassMaterial);
             CreateWall(
                 parent,
                 "Wall_Bottom",
                 new Vector3(0f, -(halfY + halfThickness), 0f),
-                new Vector3(ContainerInnerSize.x, WallThickness, ContainerInnerSize.z),
+                new Vector3(outerSize.x, WallThickness, outerSize.z),
                 glassMaterial);
         }
 
@@ -873,37 +890,37 @@ namespace Liquid.Editor
             CreateReflectionCard(
                 rig.transform,
                 "ReflectionCard_Top",
-                new Vector3(0f, 3.6f, 0.35f),
+                new Vector3(0f, 3.6f, 0.35f) * PrototypeSceneScale,
                 Quaternion.Euler(90f, 0f, 0f),
-                new Vector3(8.5f, 5.5f, 1f),
+                new Vector3(8.5f, 5.5f, 1f) * PrototypeSceneScale,
                 reflectionCardMaterial);
             CreateReflectionCard(
                 rig.transform,
                 "ReflectionCard_Left",
-                new Vector3(-4.1f, 0.15f, -0.3f),
+                new Vector3(-4.1f, 0.15f, -0.3f) * PrototypeSceneScale,
                 Quaternion.Euler(0f, 90f, 0f),
-                new Vector3(7.5f, 4.2f, 1f),
+                new Vector3(7.5f, 4.2f, 1f) * PrototypeSceneScale,
                 reflectionCardMaterial);
             CreateReflectionCard(
                 rig.transform,
                 "ReflectionCard_Right",
-                new Vector3(4.1f, 0.15f, -0.3f),
+                new Vector3(4.1f, 0.15f, -0.3f) * PrototypeSceneScale,
                 Quaternion.Euler(0f, -90f, 0f),
-                new Vector3(7.5f, 4.2f, 1f),
+                new Vector3(7.5f, 4.2f, 1f) * PrototypeSceneScale,
                 reflectionCardMaterial);
             CreateReflectionCard(
                 rig.transform,
                 "ReflectionCard_Front",
-                new Vector3(0f, -0.1f, -4.2f),
+                new Vector3(0f, -0.1f, -4.2f) * PrototypeSceneScale,
                 Quaternion.Euler(0f, 180f, 0f),
-                new Vector3(6.8f, 4.4f, 1f),
+                new Vector3(6.8f, 4.4f, 1f) * PrototypeSceneScale,
                 reflectionCardMaterial);
             CreateReflectionCard(
                 rig.transform,
                 "ReflectionCard_Back",
-                new Vector3(0f, -0.1f, 4.2f),
+                new Vector3(0f, -0.1f, 4.2f) * PrototypeSceneScale,
                 Quaternion.identity,
-                new Vector3(6.8f, 4.4f, 1f),
+                new Vector3(6.8f, 4.4f, 1f) * PrototypeSceneScale,
                 reflectionCardMaterial);
         }
 
@@ -1060,20 +1077,7 @@ namespace Liquid.Editor
 
         private static Vector3 GetGlassWallVisualScale(Vector3 wallScale)
         {
-            return new Vector3(
-                ShrinkGlassAxis(wallScale.x),
-                ShrinkGlassAxis(wallScale.y),
-                ShrinkGlassAxis(wallScale.z));
-        }
-
-        private static float ShrinkGlassAxis(float axisScale)
-        {
-            if (axisScale <= WallThickness * 1.5f)
-            {
-                return axisScale;
-            }
-
-            return Mathf.Max(axisScale - GlassVisualInset, WallThickness);
+            return wallScale;
         }
 
         private static void ApplyMaterial(GameObject target, Material material)
@@ -1197,7 +1201,10 @@ namespace Liquid.Editor
             float rotatingCubeBounds = ContainerInnerSize.magnitude * 1.05f;
             SetFieldValue(liquid, "ContainerSize", Vector3.one * rotatingCubeBounds);
             SetFieldValue(liquid, "MaxNumParticles", ZibraMaxParticles);
-            SetFieldValue(liquid, "EnableContainerMovementFeedback", false);
+            SetFieldValue(liquid, "MaxAllowedTimestep", ZibraMaxAllowedTimestep);
+            SetFieldValue(liquid, "SimulationTimeScale", ZibraSimulationTimeScale);
+            SetFieldValue(liquid, "SimulationIterationsPerFrame", ZibraSimulationIterationsPerFrame);
+            SetFieldValue(liquid, "EnableContainerMovementFeedback", true);
             SetFieldValue(liquid, "ReflectionProbeBRP", reflectionProbe);
 
             Component materialParameters = liquidObject.GetComponent(materialParametersType);
@@ -1208,19 +1215,20 @@ namespace Liquid.Editor
             SetFieldValue(solverParameters, "ParticleDensity", ZibraParticleDensity);
             SetFieldValue(solverParameters, "Viscosity", ZibraWaterViscosity);
             SetFieldValue(solverParameters, "SurfaceTension", ZibraWaterSurfaceTension);
+            SetFieldValue(solverParameters, "MaximumVelocity", ZibraMaximumVelocity);
             ApplyRealisticWaterMaterial(materialParameters);
             ApplyRealisticWaterRendering(advancedRenderParameters);
 
             GameObject emitterObject = new GameObject("ZibraLiquidEmitter");
             emitterObject.transform.SetParent(liquidObject.transform, false);
-            emitterObject.transform.localPosition = new Vector3(0f, 0.58f, 0f);
-            emitterObject.transform.localScale = new Vector3(0.5f, 0.08f, 0.5f);
+            emitterObject.transform.localPosition = ZibraEmitterLocalPosition;
+            emitterObject.transform.localScale = ZibraEmitterLocalScale;
 
             Component analyticSdf = emitterObject.AddComponent(analyticSdfType);
             SetEnumFieldValue(analyticSdf, "ChosenSDFType", "Cylinder");
 
             Component emitter = emitterObject.AddComponent(emitterType);
-            SetFieldValue(emitter, "VolumePerSimTime", 0.002f);
+            SetFieldValue(emitter, "VolumePerSimTime", ZibraEmitterVolumePerSimTime);
             SetFieldValue(emitter, "InitialVelocity", Vector3.down * 1.5f);
 
             InvokeMethod(liquid, "AddManipulator", emitter);
@@ -1328,11 +1336,11 @@ namespace Liquid.Editor
             SetFieldValue(materialParameters, "EmissiveColor", Color.black);
             SetFieldValue(materialParameters, "ReflectionColor", Color.white);
             SetFieldValue(materialParameters, "ScatteringAmount", 0.0f);
-            SetFieldValue(materialParameters, "AbsorptionAmount", 28f);
+            SetFieldValue(materialParameters, "AbsorptionAmount", 20f);
             SetFieldValue(materialParameters, "Roughness", 0.018f);
-            SetFieldValue(materialParameters, "Metalness", 0.04f);
-            SetFieldValue(materialParameters, "FresnelStrength", 1.08f);
-            SetFieldValue(materialParameters, "IndexOfRefraction", 1.26f);
+            SetFieldValue(materialParameters, "Metalness", 0.0f);
+            SetFieldValue(materialParameters, "FresnelStrength", 1.0f);
+            SetFieldValue(materialParameters, "IndexOfRefraction", 1.333f);
             SetFieldValue(materialParameters, "FluidSurfaceBlur", 1.28f);
         }
 

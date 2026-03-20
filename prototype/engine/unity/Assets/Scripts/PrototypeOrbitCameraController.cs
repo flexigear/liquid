@@ -7,15 +7,15 @@ namespace Liquid
         [SerializeField] private Transform targetTransform;
         [SerializeField] private Vector3 targetOffset = Vector3.zero;
         [SerializeField] private float lookSensitivity = 2.2f;
-        [SerializeField] private float zoomSensitivity = 1.6f;
+        [SerializeField] private float zoomSensitivity = 0.12f;
         [SerializeField] private float minPitch = -75f;
         [SerializeField] private float maxPitch = 75f;
-        [SerializeField] private float minDistance = 2.2f;
-        [SerializeField] private float maxDistance = 8.5f;
+        [SerializeField] private float minDistance = 0.16f;
+        [SerializeField] private float maxDistance = 0.65f;
 
         private float yaw;
         private float pitch;
-        private float distance = 5.4f;
+        private float distance = 0.405f;
         private float initialYaw;
         private float initialPitch;
         private float initialDistance;
