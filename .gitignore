@@ -57,6 +57,12 @@ tools/__pycache__/
 /prototype/engine/unity/native/**/build/
 /prototype/engine/unity/native/**/build-v*/
 
+# Claude + Codex workflow temp files
+.claude/codex-plan.md
+.claude/codex-prompt.md
+.claude/codex-output.md
+.claude/settings.local.json
+
 # Future Godot prototype project under prototype/engine/godot
 /prototype/engine/godot/.godot/
 /prototype/engine/godot/export_presets.cfg

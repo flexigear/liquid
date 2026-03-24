@@ -1,0 +1,39 @@
+#pragma kernel CSMain
+
+int GRID_RES;
+int particleCount;
+float DOMAIN_MIN;
+float DOMAIN_MAX;
+float CELL_SIZE;
+float dt;
+
+RWStructuredBuffer<float> particleBuf;
+
+[numthreads(256, 1, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)particleCount)
+    {
+        return;
+    }
+
+    uint baseIndex = id.x * 6u;
+    float3 position = float3(
+        particleBuf[baseIndex + 0u],
+        particleBuf[baseIndex + 1u],
+        particleBuf[baseIndex + 2u]);
+    float3 velocity = float3(
+        particleBuf[baseIndex + 3u],
+        particleBuf[baseIndex + 4u],
+        particleBuf[baseIndex + 5u]);
+
+    position += velocity * dt;
+
+    float minBound = DOMAIN_MIN + CELL_SIZE;
+    float maxBound = DOMAIN_MAX - CELL_SIZE;
+    position = clamp(position, float3(minBound, minBound, minBound), float3(maxBound, maxBound, maxBound));
+
+    particleBuf[baseIndex + 0u] = position.x;
+    particleBuf[baseIndex + 1u] = position.y;
+    particleBuf[baseIndex + 2u] = position.z;
+}

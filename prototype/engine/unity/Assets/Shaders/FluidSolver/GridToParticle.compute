@@ -1,0 +1,188 @@
+#pragma kernel CSMain
+
+int GRID_RES;
+int particleCount;
+float DOMAIN_MIN;
+float CELL_SIZE;
+
+StructuredBuffer<float> velX;
+StructuredBuffer<float> velY;
+StructuredBuffer<float> velZ;
+StructuredBuffer<float> velXOld;
+StructuredBuffer<float> velYOld;
+StructuredBuffer<float> velZOld;
+RWStructuredBuffer<float> particleBuf;
+
+uint VelXIndex(int i, int j, int k)
+{
+    return (uint)(i + j * (GRID_RES + 1) + k * (GRID_RES + 1) * GRID_RES);
+}
+
+uint VelYIndex(int i, int j, int k)
+{
+    return (uint)(i + j * GRID_RES + k * GRID_RES * (GRID_RES + 1));
+}
+
+uint VelZIndex(int i, int j, int k)
+{
+    return (uint)(i + j * GRID_RES + k * GRID_RES * GRID_RES);
+}
+
+float ReadVelXValue(uint index, int useOld)
+{
+    return useOld != 0 ? velXOld[index] : velX[index];
+}
+
+float ReadVelYValue(uint index, int useOld)
+{
+    return useOld != 0 ? velYOld[index] : velY[index];
+}
+
+float ReadVelZValue(uint index, int useOld)
+{
+    return useOld != 0 ? velZOld[index] : velZ[index];
+}
+
+float SampleX(float3 gpos, int useOld)
+{
+    gpos.x = clamp(gpos.x, 0.0f, (float)GRID_RES);
+    gpos.y = clamp(gpos.y, 0.0f, (float)(GRID_RES - 1));
+    gpos.z = clamp(gpos.z, 0.0f, (float)(GRID_RES - 1));
+
+    int i0 = (int)floor(gpos.x);
+    int j0 = (int)floor(gpos.y);
+    int k0 = (int)floor(gpos.z);
+    int i1 = min(i0 + 1, GRID_RES);
+    int j1 = min(j0 + 1, GRID_RES - 1);
+    int k1 = min(k0 + 1, GRID_RES - 1);
+
+    float tx = gpos.x - i0;
+    float ty = gpos.y - j0;
+    float tz = gpos.z - k0;
+
+    float c000 = ReadVelXValue(VelXIndex(i0, j0, k0), useOld);
+    float c100 = ReadVelXValue(VelXIndex(i1, j0, k0), useOld);
+    float c010 = ReadVelXValue(VelXIndex(i0, j1, k0), useOld);
+    float c110 = ReadVelXValue(VelXIndex(i1, j1, k0), useOld);
+    float c001 = ReadVelXValue(VelXIndex(i0, j0, k1), useOld);
+    float c101 = ReadVelXValue(VelXIndex(i1, j0, k1), useOld);
+    float c011 = ReadVelXValue(VelXIndex(i0, j1, k1), useOld);
+    float c111 = ReadVelXValue(VelXIndex(i1, j1, k1), useOld);
+
+    float c00 = lerp(c000, c100, tx);
+    float c10 = lerp(c010, c110, tx);
+    float c01 = lerp(c001, c101, tx);
+    float c11 = lerp(c011, c111, tx);
+    float c0 = lerp(c00, c10, ty);
+    float c1 = lerp(c01, c11, ty);
+    return lerp(c0, c1, tz);
+}
+
+float SampleY(float3 gpos, int useOld)
+{
+    gpos.x = clamp(gpos.x, 0.0f, (float)(GRID_RES - 1));
+    gpos.y = clamp(gpos.y, 0.0f, (float)GRID_RES);
+    gpos.z = clamp(gpos.z, 0.0f, (float)(GRID_RES - 1));
+
+    int i0 = (int)floor(gpos.x);
+    int j0 = (int)floor(gpos.y);
+    int k0 = (int)floor(gpos.z);
+    int i1 = min(i0 + 1, GRID_RES - 1);
+    int j1 = min(j0 + 1, GRID_RES);
+    int k1 = min(k0 + 1, GRID_RES - 1);
+
+    float tx = gpos.x - i0;
+    float ty = gpos.y - j0;
+    float tz = gpos.z - k0;
+
+    float c000 = ReadVelYValue(VelYIndex(i0, j0, k0), useOld);
+    float c100 = ReadVelYValue(VelYIndex(i1, j0, k0), useOld);
+    float c010 = ReadVelYValue(VelYIndex(i0, j1, k0), useOld);
+    float c110 = ReadVelYValue(VelYIndex(i1, j1, k0), useOld);
+    float c001 = ReadVelYValue(VelYIndex(i0, j0, k1), useOld);
+    float c101 = ReadVelYValue(VelYIndex(i1, j0, k1), useOld);
+    float c011 = ReadVelYValue(VelYIndex(i0, j1, k1), useOld);
+    float c111 = ReadVelYValue(VelYIndex(i1, j1, k1), useOld);
+
+    float c00 = lerp(c000, c100, tx);
+    float c10 = lerp(c010, c110, tx);
+    float c01 = lerp(c001, c101, tx);
+    float c11 = lerp(c011, c111, tx);
+    float c0 = lerp(c00, c10, ty);
+    float c1 = lerp(c01, c11, ty);
+    return lerp(c0, c1, tz);
+}
+
+float SampleZ(float3 gpos, int useOld)
+{
+    gpos.x = clamp(gpos.x, 0.0f, (float)(GRID_RES - 1));
+    gpos.y = clamp(gpos.y, 0.0f, (float)(GRID_RES - 1));
+    gpos.z = clamp(gpos.z, 0.0f, (float)GRID_RES);
+
+    int i0 = (int)floor(gpos.x);
+    int j0 = (int)floor(gpos.y);
+    int k0 = (int)floor(gpos.z);
+    int i1 = min(i0 + 1, GRID_RES - 1);
+    int j1 = min(j0 + 1, GRID_RES - 1);
+    int k1 = min(k0 + 1, GRID_RES);
+
+    float tx = gpos.x - i0;
+    float ty = gpos.y - j0;
+    float tz = gpos.z - k0;
+
+    float c000 = ReadVelZValue(VelZIndex(i0, j0, k0), useOld);
+    float c100 = ReadVelZValue(VelZIndex(i1, j0, k0), useOld);
+    float c010 = ReadVelZValue(VelZIndex(i0, j1, k0), useOld);
+    float c110 = ReadVelZValue(VelZIndex(i1, j1, k0), useOld);
+    float c001 = ReadVelZValue(VelZIndex(i0, j0, k1), useOld);
+    float c101 = ReadVelZValue(VelZIndex(i1, j0, k1), useOld);
+    float c011 = ReadVelZValue(VelZIndex(i0, j1, k1), useOld);
+    float c111 = ReadVelZValue(VelZIndex(i1, j1, k1), useOld);
+
+    float c00 = lerp(c000, c100, tx);
+    float c10 = lerp(c010, c110, tx);
+    float c01 = lerp(c001, c101, tx);
+    float c11 = lerp(c011, c111, tx);
+    float c0 = lerp(c00, c10, ty);
+    float c1 = lerp(c01, c11, ty);
+    return lerp(c0, c1, tz);
+}
+
+[numthreads(256, 1, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)particleCount)
+    {
+        return;
+    }
+
+    uint baseIndex = id.x * 6u;
+    float3 position = float3(
+        particleBuf[baseIndex + 0u],
+        particleBuf[baseIndex + 1u],
+        particleBuf[baseIndex + 2u]);
+    float3 particleVelocity = float3(
+        particleBuf[baseIndex + 3u],
+        particleBuf[baseIndex + 4u],
+        particleBuf[baseIndex + 5u]);
+
+    float3 gridPosition = (position - float3(DOMAIN_MIN, DOMAIN_MIN, DOMAIN_MIN)) / CELL_SIZE;
+
+    float3 newGridVelocity = float3(
+        SampleX(float3(gridPosition.x, gridPosition.y - 0.5f, gridPosition.z - 0.5f), 0),
+        SampleY(float3(gridPosition.x - 0.5f, gridPosition.y, gridPosition.z - 0.5f), 0),
+        SampleZ(float3(gridPosition.x - 0.5f, gridPosition.y - 0.5f, gridPosition.z), 0));
+
+    float3 oldGridVelocity = float3(
+        SampleX(float3(gridPosition.x, gridPosition.y - 0.5f, gridPosition.z - 0.5f), 1),
+        SampleY(float3(gridPosition.x - 0.5f, gridPosition.y, gridPosition.z - 0.5f), 1),
+        SampleZ(float3(gridPosition.x - 0.5f, gridPosition.y - 0.5f, gridPosition.z), 1));
+
+    float3 flipVelocity = particleVelocity + (newGridVelocity - oldGridVelocity);
+    float3 picVelocity = newGridVelocity;
+    float3 blendedVelocity = 0.95f * flipVelocity + 0.05f * picVelocity;
+
+    particleBuf[baseIndex + 3u] = blendedVelocity.x;
+    particleBuf[baseIndex + 4u] = blendedVelocity.y;
+    particleBuf[baseIndex + 5u] = blendedVelocity.z;
+}

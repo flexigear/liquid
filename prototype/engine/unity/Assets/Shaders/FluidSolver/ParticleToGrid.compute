@@ -1,0 +1,256 @@
+#pragma kernel P2GMain
+#pragma kernel Normalize
+
+int GRID_RES;
+int particleCount;
+float DOMAIN_MIN;
+float CELL_SIZE;
+
+RWStructuredBuffer<int> velXInt;
+RWStructuredBuffer<int> velYInt;
+RWStructuredBuffer<int> velZInt;
+RWStructuredBuffer<int> weightXInt;
+RWStructuredBuffer<int> weightYInt;
+RWStructuredBuffer<int> weightZInt;
+RWStructuredBuffer<float> velX;
+RWStructuredBuffer<float> velY;
+RWStructuredBuffer<float> velZ;
+RWStructuredBuffer<float> weightX;
+RWStructuredBuffer<float> weightY;
+RWStructuredBuffer<float> weightZ;
+RWStructuredBuffer<float> particleBuf;
+
+static const int SCALE_INT = 10000;
+static const float SCALE_FLOAT = 10000.0f;
+
+uint VelXIndex(int i, int j, int k)
+{
+    return (uint)(i + j * (GRID_RES + 1) + k * (GRID_RES + 1) * GRID_RES);
+}
+
+uint VelYIndex(int i, int j, int k)
+{
+    return (uint)(i + j * GRID_RES + k * GRID_RES * (GRID_RES + 1));
+}
+
+uint VelZIndex(int i, int j, int k)
+{
+    return (uint)(i + j * GRID_RES + k * GRID_RES * GRID_RES);
+}
+
+bool ValidXNode(int3 node)
+{
+    return node.x >= 0 && node.x <= GRID_RES &&
+           node.y >= 0 && node.y < GRID_RES &&
+           node.z >= 0 && node.z < GRID_RES;
+}
+
+bool ValidYNode(int3 node)
+{
+    return node.x >= 0 && node.x < GRID_RES &&
+           node.y >= 0 && node.y <= GRID_RES &&
+           node.z >= 0 && node.z < GRID_RES;
+}
+
+bool ValidZNode(int3 node)
+{
+    return node.x >= 0 && node.x < GRID_RES &&
+           node.y >= 0 && node.y < GRID_RES &&
+           node.z >= 0 && node.z <= GRID_RES;
+}
+
+void AccumulateX(float3 gpos, float value)
+{
+    int3 baseNode = (int3)floor(gpos);
+    float3 frac = gpos - floor(gpos);
+
+    [unroll]
+    for (int dz = 0; dz <= 1; dz++)
+    {
+        [unroll]
+        for (int dy = 0; dy <= 1; dy++)
+        {
+            [unroll]
+            for (int dx = 0; dx <= 1; dx++)
+            {
+                int3 node = baseNode + int3(dx, dy, dz);
+                if (!ValidXNode(node))
+                {
+                    continue;
+                }
+
+                float wx = (dx == 0) ? (1.0f - frac.x) : frac.x;
+                float wy = (dy == 0) ? (1.0f - frac.y) : frac.y;
+                float wz = (dz == 0) ? (1.0f - frac.z) : frac.z;
+                float weight = wx * wy * wz;
+                uint index = VelXIndex(node.x, node.y, node.z);
+                InterlockedAdd(velXInt[index], (int)round(weight * value * SCALE_FLOAT));
+                InterlockedAdd(weightXInt[index], (int)round(weight * SCALE_FLOAT));
+            }
+        }
+    }
+}
+
+void AccumulateY(float3 gpos, float value)
+{
+    int3 baseNode = (int3)floor(gpos);
+    float3 frac = gpos - floor(gpos);
+
+    [unroll]
+    for (int dz = 0; dz <= 1; dz++)
+    {
+        [unroll]
+        for (int dy = 0; dy <= 1; dy++)
+        {
+            [unroll]
+            for (int dx = 0; dx <= 1; dx++)
+            {
+                int3 node = baseNode + int3(dx, dy, dz);
+                if (!ValidYNode(node))
+                {
+                    continue;
+                }
+
+                float wx = (dx == 0) ? (1.0f - frac.x) : frac.x;
+                float wy = (dy == 0) ? (1.0f - frac.y) : frac.y;
+                float wz = (dz == 0) ? (1.0f - frac.z) : frac.z;
+                float weight = wx * wy * wz;
+                uint index = VelYIndex(node.x, node.y, node.z);
+                InterlockedAdd(velYInt[index], (int)round(weight * value * SCALE_FLOAT));
+                InterlockedAdd(weightYInt[index], (int)round(weight * SCALE_FLOAT));
+            }
+        }
+    }
+}
+
+void AccumulateZ(float3 gpos, float value)
+{
+    int3 baseNode = (int3)floor(gpos);
+    float3 frac = gpos - floor(gpos);
+
+    [unroll]
+    for (int dz = 0; dz <= 1; dz++)
+    {
+        [unroll]
+        for (int dy = 0; dy <= 1; dy++)
+        {
+            [unroll]
+            for (int dx = 0; dx <= 1; dx++)
+            {
+                int3 node = baseNode + int3(dx, dy, dz);
+                if (!ValidZNode(node))
+                {
+                    continue;
+                }
+
+                float wx = (dx == 0) ? (1.0f - frac.x) : frac.x;
+                float wy = (dy == 0) ? (1.0f - frac.y) : frac.y;
+                float wz = (dz == 0) ? (1.0f - frac.z) : frac.z;
+                float weight = wx * wy * wz;
+                uint index = VelZIndex(node.x, node.y, node.z);
+                InterlockedAdd(velZInt[index], (int)round(weight * value * SCALE_FLOAT));
+                InterlockedAdd(weightZInt[index], (int)round(weight * SCALE_FLOAT));
+            }
+        }
+    }
+}
+
+void NormalizeX(uint index)
+{
+    int totalWeight = weightXInt[index];
+    if (totalWeight > 0)
+    {
+        float accumulatedWeight = totalWeight / SCALE_FLOAT;
+        weightX[index] = accumulatedWeight;
+        velX[index] = (velXInt[index] / SCALE_FLOAT) / accumulatedWeight;
+    }
+    else
+    {
+        weightX[index] = 0.0f;
+        velX[index] = 0.0f;
+    }
+}
+
+void NormalizeY(uint index)
+{
+    int totalWeight = weightYInt[index];
+    if (totalWeight > 0)
+    {
+        float accumulatedWeight = totalWeight / SCALE_FLOAT;
+        weightY[index] = accumulatedWeight;
+        velY[index] = (velYInt[index] / SCALE_FLOAT) / accumulatedWeight;
+    }
+    else
+    {
+        weightY[index] = 0.0f;
+        velY[index] = 0.0f;
+    }
+}
+
+void NormalizeZ(uint index)
+{
+    int totalWeight = weightZInt[index];
+    if (totalWeight > 0)
+    {
+        float accumulatedWeight = totalWeight / SCALE_FLOAT;
+        weightZ[index] = accumulatedWeight;
+        velZ[index] = (velZInt[index] / SCALE_FLOAT) / accumulatedWeight;
+    }
+    else
+    {
+        weightZ[index] = 0.0f;
+        velZ[index] = 0.0f;
+    }
+}
+
+[numthreads(256, 1, 1)]
+void P2GMain(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)particleCount)
+    {
+        return;
+    }
+
+    uint baseIndex = id.x * 6u;
+    float3 position = float3(
+        particleBuf[baseIndex + 0u],
+        particleBuf[baseIndex + 1u],
+        particleBuf[baseIndex + 2u]);
+    float3 velocity = float3(
+        particleBuf[baseIndex + 3u],
+        particleBuf[baseIndex + 4u],
+        particleBuf[baseIndex + 5u]);
+
+    float3 gridPosition = (position - float3(DOMAIN_MIN, DOMAIN_MIN, DOMAIN_MIN)) / CELL_SIZE;
+    AccumulateX(float3(gridPosition.x, gridPosition.y - 0.5f, gridPosition.z - 0.5f), velocity.x);
+    AccumulateY(float3(gridPosition.x - 0.5f, gridPosition.y, gridPosition.z - 0.5f), velocity.y);
+    AccumulateZ(float3(gridPosition.x - 0.5f, gridPosition.y - 0.5f, gridPosition.z), velocity.z);
+}
+
+[numthreads(8, 8, 8)]
+void Normalize(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)GRID_RES || id.y >= (uint)GRID_RES || id.z >= (uint)GRID_RES)
+    {
+        return;
+    }
+
+    NormalizeX(VelXIndex((int)id.x, (int)id.y, (int)id.z));
+    NormalizeY(VelYIndex((int)id.x, (int)id.y, (int)id.z));
+    NormalizeZ(VelZIndex((int)id.x, (int)id.y, (int)id.z));
+
+    if (id.x == (uint)(GRID_RES - 1))
+    {
+        NormalizeX(VelXIndex((int)id.x + 1, (int)id.y, (int)id.z));
+    }
+
+    if (id.y == (uint)(GRID_RES - 1))
+    {
+        NormalizeY(VelYIndex((int)id.x, (int)id.y + 1, (int)id.z));
+    }
+
+    if (id.z == (uint)(GRID_RES - 1))
+    {
+        NormalizeZ(VelZIndex((int)id.x, (int)id.y, (int)id.z + 1));
+    }
+}

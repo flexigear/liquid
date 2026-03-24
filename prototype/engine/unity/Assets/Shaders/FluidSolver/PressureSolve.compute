@@ -1,0 +1,271 @@
+#pragma kernel ComputeDivergence
+#pragma kernel JacobiIteration
+#pragma kernel ApplyPressure
+
+int GRID_RES;
+float CELL_SIZE;
+float dt;
+float density;
+
+StructuredBuffer<float> velX;
+StructuredBuffer<float> velY;
+StructuredBuffer<float> velZ;
+RWStructuredBuffer<float> divergence;
+StructuredBuffer<int> cellType;
+StructuredBuffer<float> pressureIn;
+RWStructuredBuffer<float> pressureOut;
+RWStructuredBuffer<float> velXOut;
+RWStructuredBuffer<float> velYOut;
+RWStructuredBuffer<float> velZOut;
+
+static const int CELL_AIR = 0;
+static const int CELL_FLUID = 1;
+static const int CELL_SOLID = 2;
+
+uint CellIndex(int i, int j, int k)
+{
+    return (uint)(i + j * GRID_RES + k * GRID_RES * GRID_RES);
+}
+
+uint VelXIndex(int i, int j, int k)
+{
+    return (uint)(i + j * (GRID_RES + 1) + k * (GRID_RES + 1) * GRID_RES);
+}
+
+uint VelYIndex(int i, int j, int k)
+{
+    return (uint)(i + j * GRID_RES + k * GRID_RES * (GRID_RES + 1));
+}
+
+uint VelZIndex(int i, int j, int k)
+{
+    return (uint)(i + j * GRID_RES + k * GRID_RES * GRID_RES);
+}
+
+bool IsInsideCell(int3 cell)
+{
+    return cell.x >= 0 && cell.x < GRID_RES &&
+           cell.y >= 0 && cell.y < GRID_RES &&
+           cell.z >= 0 && cell.z < GRID_RES;
+}
+
+int ReadCellTypeOrAir(int3 cell)
+{
+    if (!IsInsideCell(cell))
+    {
+        return CELL_AIR;
+    }
+
+    return cellType[CellIndex(cell.x, cell.y, cell.z)];
+}
+
+float ReadPressureOrZero(int3 cell)
+{
+    if (!IsInsideCell(cell))
+    {
+        return 0.0f;
+    }
+
+    int type = cellType[CellIndex(cell.x, cell.y, cell.z)];
+    return type == CELL_FLUID ? pressureIn[CellIndex(cell.x, cell.y, cell.z)] : 0.0f;
+}
+
+[numthreads(8, 8, 8)]
+void ComputeDivergence(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)GRID_RES || id.y >= (uint)GRID_RES || id.z >= (uint)GRID_RES)
+    {
+        return;
+    }
+
+    int i = (int)id.x;
+    int j = (int)id.y;
+    int k = (int)id.z;
+
+    float rightX = velX[VelXIndex(i + 1, j, k)];
+    float leftX = velX[VelXIndex(i, j, k)];
+    float topY = velY[VelYIndex(i, j + 1, k)];
+    float bottomY = velY[VelYIndex(i, j, k)];
+    float frontZ = velZ[VelZIndex(i, j, k + 1)];
+    float backZ = velZ[VelZIndex(i, j, k)];
+
+    divergence[CellIndex(i, j, k)] = (rightX - leftX + topY - bottomY + frontZ - backZ) / CELL_SIZE;
+}
+
+[numthreads(8, 8, 8)]
+void JacobiIteration(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)GRID_RES || id.y >= (uint)GRID_RES || id.z >= (uint)GRID_RES)
+    {
+        return;
+    }
+
+    int3 cell = int3((int)id.x, (int)id.y, (int)id.z);
+    uint index = CellIndex(cell.x, cell.y, cell.z);
+
+    if (cellType[index] != CELL_FLUID)
+    {
+        pressureOut[index] = 0.0f;
+        return;
+    }
+
+    float sumNeighborPressures = 0.0f;
+    int validNeighborCount = 0;
+    int3 neighbor = cell + int3(-1, 0, 0);
+    if (IsInsideCell(neighbor))
+    {
+        int neighborType = cellType[CellIndex(neighbor.x, neighbor.y, neighbor.z)];
+        if (neighborType != CELL_SOLID)
+        {
+            if (neighborType == CELL_FLUID)
+            {
+                sumNeighborPressures += pressureIn[CellIndex(neighbor.x, neighbor.y, neighbor.z)];
+            }
+
+            validNeighborCount++;
+        }
+    }
+
+    neighbor = cell + int3(1, 0, 0);
+    if (IsInsideCell(neighbor))
+    {
+        int neighborType = cellType[CellIndex(neighbor.x, neighbor.y, neighbor.z)];
+        if (neighborType != CELL_SOLID)
+        {
+            if (neighborType == CELL_FLUID)
+            {
+                sumNeighborPressures += pressureIn[CellIndex(neighbor.x, neighbor.y, neighbor.z)];
+            }
+
+            validNeighborCount++;
+        }
+    }
+
+    neighbor = cell + int3(0, -1, 0);
+    if (IsInsideCell(neighbor))
+    {
+        int neighborType = cellType[CellIndex(neighbor.x, neighbor.y, neighbor.z)];
+        if (neighborType != CELL_SOLID)
+        {
+            if (neighborType == CELL_FLUID)
+            {
+                sumNeighborPressures += pressureIn[CellIndex(neighbor.x, neighbor.y, neighbor.z)];
+            }
+
+            validNeighborCount++;
+        }
+    }
+
+    neighbor = cell + int3(0, 1, 0);
+    if (IsInsideCell(neighbor))
+    {
+        int neighborType = cellType[CellIndex(neighbor.x, neighbor.y, neighbor.z)];
+        if (neighborType != CELL_SOLID)
+        {
+            if (neighborType == CELL_FLUID)
+            {
+                sumNeighborPressures += pressureIn[CellIndex(neighbor.x, neighbor.y, neighbor.z)];
+            }
+
+            validNeighborCount++;
+        }
+    }
+
+    neighbor = cell + int3(0, 0, -1);
+    if (IsInsideCell(neighbor))
+    {
+        int neighborType = cellType[CellIndex(neighbor.x, neighbor.y, neighbor.z)];
+        if (neighborType != CELL_SOLID)
+        {
+            if (neighborType == CELL_FLUID)
+            {
+                sumNeighborPressures += pressureIn[CellIndex(neighbor.x, neighbor.y, neighbor.z)];
+            }
+
+            validNeighborCount++;
+        }
+    }
+
+    neighbor = cell + int3(0, 0, 1);
+    if (IsInsideCell(neighbor))
+    {
+        int neighborType = cellType[CellIndex(neighbor.x, neighbor.y, neighbor.z)];
+        if (neighborType != CELL_SOLID)
+        {
+            if (neighborType == CELL_FLUID)
+            {
+                sumNeighborPressures += pressureIn[CellIndex(neighbor.x, neighbor.y, neighbor.z)];
+            }
+
+            validNeighborCount++;
+        }
+    }
+
+    if (validNeighborCount > 0)
+    {
+        pressureOut[index] = (sumNeighborPressures - divergence[index] * CELL_SIZE * CELL_SIZE) / validNeighborCount;
+    }
+    else
+    {
+        pressureOut[index] = 0.0f;
+    }
+}
+
+[numthreads(8, 8, 8)]
+void ApplyPressure(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)GRID_RES || id.y >= (uint)GRID_RES || id.z >= (uint)GRID_RES)
+    {
+        return;
+    }
+
+    int i = (int)id.x;
+    int j = (int)id.y;
+    int k = (int)id.z;
+    float pressureScale = dt / (density * CELL_SIZE);
+
+    if (i > 0)
+    {
+        int3 leftCell = int3(i - 1, j, k);
+        int3 rightCell = int3(i, j, k);
+        int leftType = ReadCellTypeOrAir(leftCell);
+        int rightType = ReadCellTypeOrAir(rightCell);
+        if (leftType == CELL_FLUID || rightType == CELL_FLUID)
+        {
+            uint faceIndex = VelXIndex(i, j, k);
+            float leftPressure = ReadPressureOrZero(leftCell);
+            float rightPressure = ReadPressureOrZero(rightCell);
+            velXOut[faceIndex] -= pressureScale * (rightPressure - leftPressure);
+        }
+    }
+
+    if (j > 0)
+    {
+        int3 bottomCell = int3(i, j - 1, k);
+        int3 topCell = int3(i, j, k);
+        int bottomType = ReadCellTypeOrAir(bottomCell);
+        int topType = ReadCellTypeOrAir(topCell);
+        if (bottomType == CELL_FLUID || topType == CELL_FLUID)
+        {
+            uint faceIndex = VelYIndex(i, j, k);
+            float bottomPressure = ReadPressureOrZero(bottomCell);
+            float topPressure = ReadPressureOrZero(topCell);
+            velYOut[faceIndex] -= pressureScale * (topPressure - bottomPressure);
+        }
+    }
+
+    if (k > 0)
+    {
+        int3 backCell = int3(i, j, k - 1);
+        int3 frontCell = int3(i, j, k);
+        int backType = ReadCellTypeOrAir(backCell);
+        int frontType = ReadCellTypeOrAir(frontCell);
+        if (backType == CELL_FLUID || frontType == CELL_FLUID)
+        {
+            uint faceIndex = VelZIndex(i, j, k);
+            float backPressure = ReadPressureOrZero(backCell);
+            float frontPressure = ReadPressureOrZero(frontCell);
+            velZOut[faceIndex] -= pressureScale * (frontPressure - backPressure);
+        }
+    }
+}

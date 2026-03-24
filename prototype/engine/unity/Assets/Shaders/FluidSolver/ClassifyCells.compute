@@ -1,0 +1,118 @@
+#pragma kernel ClearGrid
+#pragma kernel MarkFluidCells
+
+int GRID_RES;
+int particleCount;
+float DOMAIN_MIN;
+float CELL_SIZE;
+
+RWStructuredBuffer<int> cellType;
+RWStructuredBuffer<float> velX;
+RWStructuredBuffer<float> velY;
+RWStructuredBuffer<float> velZ;
+RWStructuredBuffer<float> weightX;
+RWStructuredBuffer<float> weightY;
+RWStructuredBuffer<float> weightZ;
+RWStructuredBuffer<int> velXInt;
+RWStructuredBuffer<int> velYInt;
+RWStructuredBuffer<int> velZInt;
+RWStructuredBuffer<int> weightXInt;
+RWStructuredBuffer<int> weightYInt;
+RWStructuredBuffer<int> weightZInt;
+RWStructuredBuffer<float> particleBuf;
+
+uint CellIndex(uint i, uint j, uint k)
+{
+    return i + j * (uint)GRID_RES + k * (uint)GRID_RES * (uint)GRID_RES;
+}
+
+uint VelXIndex(uint i, uint j, uint k)
+{
+    return i + j * (uint)(GRID_RES + 1) + k * (uint)(GRID_RES + 1) * (uint)GRID_RES;
+}
+
+uint VelYIndex(uint i, uint j, uint k)
+{
+    return i + j * (uint)GRID_RES + k * (uint)GRID_RES * (uint)(GRID_RES + 1);
+}
+
+uint VelZIndex(uint i, uint j, uint k)
+{
+    return i + j * (uint)GRID_RES + k * (uint)GRID_RES * (uint)GRID_RES;
+}
+
+void ClearXFace(uint i, uint j, uint k)
+{
+    uint index = VelXIndex(i, j, k);
+    velX[index] = 0.0f;
+    weightX[index] = 0.0f;
+    velXInt[index] = 0;
+    weightXInt[index] = 0;
+}
+
+void ClearYFace(uint i, uint j, uint k)
+{
+    uint index = VelYIndex(i, j, k);
+    velY[index] = 0.0f;
+    weightY[index] = 0.0f;
+    velYInt[index] = 0;
+    weightYInt[index] = 0;
+}
+
+void ClearZFace(uint i, uint j, uint k)
+{
+    uint index = VelZIndex(i, j, k);
+    velZ[index] = 0.0f;
+    weightZ[index] = 0.0f;
+    velZInt[index] = 0;
+    weightZInt[index] = 0;
+}
+
+[numthreads(8, 8, 8)]
+void ClearGrid(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)GRID_RES || id.y >= (uint)GRID_RES || id.z >= (uint)GRID_RES)
+    {
+        return;
+    }
+
+    cellType[CellIndex(id.x, id.y, id.z)] = 0;
+
+    ClearXFace(id.x, id.y, id.z);
+    ClearYFace(id.x, id.y, id.z);
+    ClearZFace(id.x, id.y, id.z);
+
+    if (id.x == (uint)(GRID_RES - 1))
+    {
+        ClearXFace(id.x + 1u, id.y, id.z);
+    }
+
+    if (id.y == (uint)(GRID_RES - 1))
+    {
+        ClearYFace(id.x, id.y + 1u, id.z);
+    }
+
+    if (id.z == (uint)(GRID_RES - 1))
+    {
+        ClearZFace(id.x, id.y, id.z + 1u);
+    }
+}
+
+[numthreads(256, 1, 1)]
+void MarkFluidCells(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)particleCount)
+    {
+        return;
+    }
+
+    uint baseIndex = id.x * 6u;
+    float3 position = float3(
+        particleBuf[baseIndex + 0u],
+        particleBuf[baseIndex + 1u],
+        particleBuf[baseIndex + 2u]);
+
+    int3 cell = (int3)floor((position - float3(DOMAIN_MIN, DOMAIN_MIN, DOMAIN_MIN)) / CELL_SIZE);
+    cell = clamp(cell, 0, GRID_RES - 1);
+    cellType[CellIndex((uint)cell.x, (uint)cell.y, (uint)cell.z)] = 1;
+}
