@@ -1,7 +1,9 @@
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 
-namespace Liquid.FluidSolver.Editor
+namespace Liquid.FluidSolver
 {
     public static class FlipSolverBootstrap
     {
@@ -31,6 +33,59 @@ namespace Liquid.FluidSolver.Editor
 
             // 5. Select the new object
             Selection.activeGameObject = go;
+        }
+
+        [MenuItem("Liquid/Setup Fluid Renderer")]
+        static void SetupFluidRenderer()
+        {
+            // Find the active URP asset
+            var urpAsset = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;
+            if (urpAsset == null)
+            {
+                Debug.LogError("No URP asset found. Make sure the project uses Universal Render Pipeline.");
+                return;
+            }
+
+            // Get the renderer data via reflection (URP does not expose this publicly in older versions)
+            var rendererDataList = typeof(UniversalRenderPipelineAsset)
+                .GetField("m_RendererDataList", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                ?.GetValue(urpAsset) as ScriptableRendererData[];
+
+            if (rendererDataList == null || rendererDataList.Length == 0)
+            {
+                Debug.LogError("Could not access URP renderer data list.");
+                return;
+            }
+
+            var rendererData = rendererDataList[0];
+            if (rendererData == null)
+            {
+                Debug.LogError("URP renderer data is null.");
+                return;
+            }
+
+            // Check if FluidRendererFeature is already added
+            foreach (var feature in rendererData.rendererFeatures)
+            {
+                if (feature is FluidRendererFeature)
+                {
+                    Debug.Log("FluidRendererFeature is already added to the URP renderer.");
+                    return;
+                }
+            }
+
+            // Add the feature
+            var fluidFeature = ScriptableObject.CreateInstance<FluidRendererFeature>();
+            fluidFeature.name = "FluidRendererFeature";
+
+            // Save the feature as a sub-asset of the renderer data
+            AssetDatabase.AddObjectToAsset(fluidFeature, rendererData);
+            rendererData.rendererFeatures.Add(fluidFeature);
+
+            EditorUtility.SetDirty(rendererData);
+            AssetDatabase.SaveAssets();
+
+            Debug.Log("FluidRendererFeature successfully added to URP renderer.");
         }
 
         private static void AssignShader(SerializedObject so, string fieldName, string shaderName)

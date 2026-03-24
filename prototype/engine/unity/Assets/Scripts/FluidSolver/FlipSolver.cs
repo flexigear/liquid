@@ -10,7 +10,6 @@ namespace Liquid.FluidSolver
         private const int GridThreadGroupSize = 8;
         private const int JacobiIterations = 50;
         private const float GizmoRadius = 0.01f;
-        private const float ParticleRenderRadius = 0.015f;
         private const float DragSensitivity = 3.0f;
 
         [SerializeField] private ComputeShader classifyCellsCS;
@@ -23,6 +22,9 @@ namespace Liquid.FluidSolver
         [SerializeField] private Mesh containerMesh;
         [SerializeField] private bool invertMeshSDF;
 
+        public static FlipSolver Instance { get; private set; }
+        public ComputeBuffer ParticleBuffer => particleBuffer;
+        public int ParticleCount => particleCount;
         private ComputeBuffer particleBuffer;
         private ComputeBuffer gridVelX;
         private ComputeBuffer gridVelY;
@@ -64,7 +66,6 @@ namespace Liquid.FluidSolver
         private int enforceBoundaryKernel = -1;
 
         private bool missingShaderWarningLogged;
-        private Material runtimeParticleMaterial;
         private Material containerMaterial;
         private float containerFitScale;
         private Vector3 containerMeshCenter;
@@ -79,6 +80,7 @@ namespace Liquid.FluidSolver
 
         private void Start()
         {
+            Instance = this;
             AllocateBuffers();
             CacheKernelIds();
 
@@ -104,12 +106,6 @@ namespace Liquid.FluidSolver
                 {
                     containerMaterial = new Material(containerShader);
                 }
-            }
-
-            Shader particleShader = Shader.Find("Hidden/FlipParticle");
-            if (particleShader != null)
-            {
-                runtimeParticleMaterial = new Material(particleShader);
             }
 
             previousRotation = transform.rotation;
@@ -161,7 +157,6 @@ namespace Liquid.FluidSolver
         private void Update()
         {
             HandleMouseRotation();
-            RenderParticles();
             RenderContainer();
         }
 
@@ -176,25 +171,6 @@ namespace Liquid.FluidSolver
             float dy = Input.GetAxis("Mouse Y") * DragSensitivity;
             transform.Rotate(Vector3.up, -dx, Space.World);
             transform.Rotate(Vector3.right, dy, Space.World);
-        }
-
-        private void RenderParticles()
-        {
-            if (runtimeParticleMaterial == null || particleBuffer == null || particleCount <= 0)
-            {
-                return;
-            }
-
-            runtimeParticleMaterial.SetBuffer("_ParticleBuf", particleBuffer);
-            runtimeParticleMaterial.SetFloat("_ParticleRadius", ParticleRenderRadius);
-            runtimeParticleMaterial.SetMatrix("_LocalToWorld", transform.localToWorldMatrix);
-
-            Graphics.DrawProcedural(
-                runtimeParticleMaterial,
-                new Bounds(transform.position, Vector3.one * 3.0f),
-                MeshTopology.Triangles,
-                6 * particleCount,
-                1);
         }
 
         private void RenderContainer()
@@ -236,12 +212,6 @@ namespace Liquid.FluidSolver
             ReleaseBuffer(ref gridWeightZInt);
             ReleaseBuffer(ref gridDivergence);
 
-            if (runtimeParticleMaterial != null)
-            {
-                Destroy(runtimeParticleMaterial);
-                runtimeParticleMaterial = null;
-            }
-
             if (sdfTexture != null)
             {
                 Destroy(sdfTexture);
@@ -253,6 +223,8 @@ namespace Liquid.FluidSolver
                 Destroy(containerMaterial);
                 containerMaterial = null;
             }
+
+            if (Instance == this) Instance = null;
         }
 
         private void OnDrawGizmos()
