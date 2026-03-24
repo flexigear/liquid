@@ -1,6 +1,7 @@
 #pragma kernel ComputeDivergence
 #pragma kernel JacobiIteration
 #pragma kernel ApplyPressure
+#pragma kernel EnforceBoundary
 
 int GRID_RES;
 float CELL_SIZE;
@@ -268,4 +269,29 @@ void ApplyPressure(uint3 id : SV_DispatchThreadID)
             velZOut[faceIndex] -= pressureScale * (frontPressure - backPressure);
         }
     }
+}
+
+[numthreads(8, 8, 8)]
+void EnforceBoundary(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)GRID_RES || id.y >= (uint)GRID_RES || id.z >= (uint)GRID_RES)
+    {
+        return;
+    }
+
+    int i = (int)id.x;
+    int j = (int)id.y;
+    int k = (int)id.z;
+
+    if (cellType[CellIndex(i, j, k)] != CELL_SOLID)
+    {
+        return;
+    }
+
+    velXOut[VelXIndex(i, j, k)] = 0.0;
+    velXOut[VelXIndex(i + 1, j, k)] = 0.0;
+    velYOut[VelYIndex(i, j, k)] = 0.0;
+    velYOut[VelYIndex(i, j + 1, k)] = 0.0;
+    velZOut[VelZIndex(i, j, k)] = 0.0;
+    velZOut[VelZIndex(i, j, k + 1)] = 0.0;
 }

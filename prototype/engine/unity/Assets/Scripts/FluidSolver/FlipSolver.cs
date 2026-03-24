@@ -56,6 +56,7 @@ namespace Liquid.FluidSolver
         private int applyPressureKernel = -1;
         private int g2pKernel = -1;
         private int advectKernel = -1;
+        private int enforceBoundaryKernel = -1;
 
         private bool missingShaderWarningLogged;
 
@@ -78,7 +79,9 @@ namespace Liquid.FluidSolver
             DispatchParticleToGrid();
             CopyGridVelocitiesToOld();
             DispatchAddForces();
+            DispatchEnforceBoundary();
             DispatchPressureSolve();
+            DispatchEnforceBoundary();
             DispatchGridToParticle();
             DispatchAdvectParticles();
         }
@@ -250,6 +253,7 @@ namespace Liquid.FluidSolver
                 computeDivergenceKernel = pressureSolveCS.FindKernel("ComputeDivergence");
                 jacobiKernel = pressureSolveCS.FindKernel("JacobiIteration");
                 applyPressureKernel = pressureSolveCS.FindKernel("ApplyPressure");
+                enforceBoundaryKernel = pressureSolveCS.FindKernel("EnforceBoundary");
             }
 
             if (g2pCS != null)
@@ -286,6 +290,8 @@ namespace Liquid.FluidSolver
         private void DispatchClearGrid()
         {
             SetCommonGridParams(classifyCellsCS);
+            float bhe = FlipSolverConstants.BOX_HALF_EXTENT;
+            classifyCellsCS.SetFloats("boxHalfExtent", bhe, bhe, bhe);
             classifyCellsCS.SetBuffer(clearGridKernel, "cellType", gridCellType);
             classifyCellsCS.SetBuffer(clearGridKernel, "velX", gridVelX);
             classifyCellsCS.SetBuffer(clearGridKernel, "velY", gridVelY);
@@ -440,8 +446,24 @@ namespace Liquid.FluidSolver
             advectCS.SetFloat("CELL_SIZE", FlipSolverConstants.CELL_SIZE);
             advectCS.SetFloat("dt", FlipSolverConstants.DT);
             advectCS.SetInt("particleCount", particleCount);
+            float bhe = FlipSolverConstants.BOX_HALF_EXTENT;
+            advectCS.SetFloats("boxHalfExtent", bhe, bhe, bhe);
             advectCS.SetBuffer(advectKernel, "particleBuf", particleBuffer);
             advectCS.Dispatch(advectKernel, DivUp(particleCount, ParticleThreadGroupSize), 1, 1);
+        }
+
+        private void DispatchEnforceBoundary()
+        {
+            pressureSolveCS.SetInt("GRID_RES", FlipSolverConstants.GRID_RES);
+            pressureSolveCS.SetBuffer(enforceBoundaryKernel, "cellType", gridCellType);
+            pressureSolveCS.SetBuffer(enforceBoundaryKernel, "velXOut", gridVelX);
+            pressureSolveCS.SetBuffer(enforceBoundaryKernel, "velYOut", gridVelY);
+            pressureSolveCS.SetBuffer(enforceBoundaryKernel, "velZOut", gridVelZ);
+            pressureSolveCS.Dispatch(
+                enforceBoundaryKernel,
+                DivUp(FlipSolverConstants.GRID_RES, GridThreadGroupSize),
+                DivUp(FlipSolverConstants.GRID_RES, GridThreadGroupSize),
+                DivUp(FlipSolverConstants.GRID_RES, GridThreadGroupSize));
         }
 
         private static void SetCommonGridParams(ComputeShader shader)

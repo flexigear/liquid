@@ -21,6 +21,7 @@ namespace Liquid.FluidSolver
         public const float GRAVITY = 9.81f;
         public const float DENSITY = 1000.0f;
         public const float DT = 0.016f;
+        public const float BOX_HALF_EXTENT = DOMAIN_MAX - 2.0f * CELL_SIZE;
     }
 
     public enum CellType

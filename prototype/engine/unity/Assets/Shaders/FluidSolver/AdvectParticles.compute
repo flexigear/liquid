@@ -6,6 +6,24 @@ float DOMAIN_MIN;
 float DOMAIN_MAX;
 float CELL_SIZE;
 float dt;
+float3 boxHalfExtent;
+
+float BoxSDF(float3 p)
+{
+    float3 d = abs(p) - boxHalfExtent;
+    return length(max(d, 0.0)) + min(max(d.x, max(d.y, d.z)), 0.0);
+}
+
+float3 BoxSDFNormal(float3 p)
+{
+    float eps = CELL_SIZE * 0.1;
+    float3 n;
+    n.x = BoxSDF(p + float3(eps, 0, 0)) - BoxSDF(p - float3(eps, 0, 0));
+    n.y = BoxSDF(p + float3(0, eps, 0)) - BoxSDF(p - float3(0, eps, 0));
+    n.z = BoxSDF(p + float3(0, 0, eps)) - BoxSDF(p - float3(0, 0, eps));
+    float len = length(n);
+    return len > 1e-8 ? n / len : float3(0.0, 1.0, 0.0);
+}
 
 RWStructuredBuffer<float> particleBuf;
 
@@ -29,11 +47,23 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 
     position += velocity * dt;
 
-    float minBound = DOMAIN_MIN + CELL_SIZE;
-    float maxBound = DOMAIN_MAX - CELL_SIZE;
-    position = clamp(position, float3(minBound, minBound, minBound), float3(maxBound, maxBound, maxBound));
+    float sdf = BoxSDF(position);
+    if (sdf > 0.0)
+    {
+        float3 normal = BoxSDFNormal(position);
+        position -= normal * (sdf + CELL_SIZE * 0.1);
+
+        float vn = dot(velocity, normal);
+        if (vn > 0.0)
+        {
+            velocity -= normal * vn;
+        }
+    }
 
     particleBuf[baseIndex + 0u] = position.x;
     particleBuf[baseIndex + 1u] = position.y;
     particleBuf[baseIndex + 2u] = position.z;
+    particleBuf[baseIndex + 3u] = velocity.x;
+    particleBuf[baseIndex + 4u] = velocity.y;
+    particleBuf[baseIndex + 5u] = velocity.z;
 }
