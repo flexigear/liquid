@@ -21,11 +21,24 @@ RWStructuredBuffer<int> weightYInt;
 RWStructuredBuffer<int> weightZInt;
 RWStructuredBuffer<float> particleBuf;
 float3 boxHalfExtent;
+int _UseSDFTexture;
+Texture3D<float> _SDFTexture;
+SamplerState sampler_SDFTexture;
 
 float BoxSDF(float3 p)
 {
     float3 d = abs(p) - boxHalfExtent;
     return length(max(d, 0.0)) + min(max(d.x, max(d.y, d.z)), 0.0);
+}
+
+float EvaluateSDF(float3 p)
+{
+    if (_UseSDFTexture)
+    {
+        float3 uvw = (p + 1.0) * 0.5;
+        return _SDFTexture.SampleLevel(sampler_SDFTexture, uvw, 0);
+    }
+    return BoxSDF(p);
 }
 
 uint CellIndex(uint i, uint j, uint k)
@@ -87,7 +100,7 @@ void ClearGrid(uint3 id : SV_DispatchThreadID)
         DOMAIN_MIN + (id.x + 0.5) * CELL_SIZE,
         DOMAIN_MIN + (id.y + 0.5) * CELL_SIZE,
         DOMAIN_MIN + (id.z + 0.5) * CELL_SIZE);
-    cellType[CellIndex(id.x, id.y, id.z)] = (BoxSDF(cellCenter) >= 0.0) ? 2 : 0;
+    cellType[CellIndex(id.x, id.y, id.z)] = (EvaluateSDF(cellCenter) >= 0.0) ? 2 : 0;
 
     ClearXFace(id.x, id.y, id.z);
     ClearYFace(id.x, id.y, id.z);

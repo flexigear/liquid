@@ -19,6 +19,9 @@ namespace Liquid.FluidSolver
         [SerializeField] private ComputeShader pressureSolveCS;
         [SerializeField] private ComputeShader g2pCS;
         [SerializeField] private ComputeShader advectCS;
+        [SerializeField] private ComputeShader bakeSdfCS;
+        [SerializeField] private Mesh containerMesh;
+        [SerializeField] private bool invertMeshSDF;
 
         private ComputeBuffer particleBuffer;
         private ComputeBuffer gridVelX;
@@ -62,6 +65,12 @@ namespace Liquid.FluidSolver
 
         private bool missingShaderWarningLogged;
         private Material runtimeParticleMaterial;
+        private Material containerMaterial;
+        private float containerFitScale;
+        private Vector3 containerMeshCenter;
+        private Texture3D sdfTexture;
+        private bool useSDFTexture;
+        private float[] bakedSdfData;
 
         private Quaternion previousRotation;
         private Vector3 angularVelocityWorld;
@@ -71,8 +80,31 @@ namespace Liquid.FluidSolver
         private void Start()
         {
             AllocateBuffers();
-            InitializeParticles();
             CacheKernelIds();
+
+            if (containerMesh != null && bakeSdfCS != null)
+            {
+                sdfTexture = SDFBaker.BakeMeshSDF(
+                    containerMesh, FlipSolverConstants.GRID_RES, invertMeshSDF, bakeSdfCS, out bakedSdfData);
+                useSDFTexture = true;
+            }
+
+            InitializeParticles();
+
+            if (containerMesh != null)
+            {
+                containerMesh.RecalculateBounds();
+                containerMeshCenter = containerMesh.bounds.center;
+                Vector3 halfSize = containerMesh.bounds.extents;
+                float maxHalf = Mathf.Max(halfSize.x, Mathf.Max(halfSize.y, halfSize.z));
+                containerFitScale = FlipSolverConstants.BOX_HALF_EXTENT / maxHalf;
+
+                Shader containerShader = Shader.Find("Hidden/FlipContainer");
+                if (containerShader != null)
+                {
+                    containerMaterial = new Material(containerShader);
+                }
+            }
 
             Shader particleShader = Shader.Find("Hidden/FlipParticle");
             if (particleShader != null)
@@ -130,6 +162,7 @@ namespace Liquid.FluidSolver
         {
             HandleMouseRotation();
             RenderParticles();
+            RenderContainer();
         }
 
         private void HandleMouseRotation()
@@ -164,6 +197,22 @@ namespace Liquid.FluidSolver
                 1);
         }
 
+        private void RenderContainer()
+        {
+            if (containerMaterial == null || containerMesh == null)
+            {
+                return;
+            }
+
+            Matrix4x4 meshToLocal = Matrix4x4.TRS(
+                -containerMeshCenter * containerFitScale,
+                Quaternion.identity,
+                Vector3.one * containerFitScale);
+            Matrix4x4 meshToWorld = transform.localToWorldMatrix * meshToLocal;
+
+            Graphics.DrawMesh(containerMesh, meshToWorld, containerMaterial, 0);
+        }
+
         private void OnDestroy()
         {
             ReleaseBuffer(ref particleBuffer);
@@ -191,6 +240,18 @@ namespace Liquid.FluidSolver
             {
                 Destroy(runtimeParticleMaterial);
                 runtimeParticleMaterial = null;
+            }
+
+            if (sdfTexture != null)
+            {
+                Destroy(sdfTexture);
+                sdfTexture = null;
+            }
+
+            if (containerMaterial != null)
+            {
+                Destroy(containerMaterial);
+                containerMaterial = null;
             }
         }
 
@@ -262,56 +323,119 @@ namespace Liquid.FluidSolver
 
         private void InitializeParticles()
         {
-            const int minI = 24;
-            const int maxI = 40;
-            const int minJ = 40;
-            const int maxJ = 56;
-            const int minK = 24;
-            const int maxK = 40;
-
-            particleCount = (maxI - minI) * (maxJ - minJ) * (maxK - minK) * ParticlesPerCell;
-            float[] particleData = new float[particleCount * ParticleFloatStride];
-            particleReadback = new float[particleData.Length];
-
+            int gridRes = FlipSolverConstants.GRID_RES;
             float halfCell = FlipSolverConstants.CELL_SIZE * 0.5f;
             System.Random random = new System.Random(12345);
-            int particleIndex = 0;
 
-            for (int k = minK; k < maxK; k++)
+            System.Collections.Generic.List<float> particleList = new System.Collections.Generic.List<float>();
+
+            Debug.Log($"[FlipSolver] bakedSdfData is {(bakedSdfData != null ? $"valid ({bakedSdfData.Length} floats)" : "NULL")}");
+
+            if (bakedSdfData != null)
             {
-                for (int j = minJ; j < maxJ; j++)
+                int minInteriorJ = gridRes;
+                int maxInteriorJ = 0;
+                for (int k = 0; k < gridRes; k++)
                 {
-                    for (int i = minI; i < maxI; i++)
+                    for (int j = 0; j < gridRes; j++)
                     {
-                        Vector3 cellCenter = new Vector3(
-                            FlipSolverConstants.DOMAIN_MIN + (i + 0.5f) * FlipSolverConstants.CELL_SIZE,
-                            FlipSolverConstants.DOMAIN_MIN + (j + 0.5f) * FlipSolverConstants.CELL_SIZE,
-                            FlipSolverConstants.DOMAIN_MIN + (k + 0.5f) * FlipSolverConstants.CELL_SIZE);
-
-                        for (int p = 0; p < ParticlesPerCell; p++)
+                        for (int i = 0; i < gridRes; i++)
                         {
-                            int baseIndex = particleIndex * ParticleFloatStride;
-                            Vector3 jitter = new Vector3(
-                                NextJitter(random, halfCell),
-                                NextJitter(random, halfCell),
-                                NextJitter(random, halfCell));
+                            if (bakedSdfData[i + j * gridRes + k * gridRes * gridRes] < 0.0f)
+                            {
+                                if (j < minInteriorJ) minInteriorJ = j;
+                                if (j > maxInteriorJ) maxInteriorJ = j;
+                            }
+                        }
+                    }
+                }
 
-                            Vector3 position = cellCenter + jitter;
+                int fillMaxJ = minInteriorJ + (int)((maxInteriorJ - minInteriorJ) * 0.4f);
 
-                            particleData[baseIndex + 0] = position.x;
-                            particleData[baseIndex + 1] = position.y;
-                            particleData[baseIndex + 2] = position.z;
-                            particleData[baseIndex + 3] = 0.0f;
-                            particleData[baseIndex + 4] = 0.0f;
-                            particleData[baseIndex + 5] = 0.0f;
-                            particleIndex++;
+                Debug.Log($"[FlipSolver] SDF interior Y range: j=[{minInteriorJ},{maxInteriorJ}], fillMaxJ={fillMaxJ}");
+
+                for (int k = 0; k < gridRes; k++)
+                {
+                    for (int j = minInteriorJ; j <= fillMaxJ; j++)
+                    {
+                        for (int i = 0; i < gridRes; i++)
+                        {
+                            int idx = i + j * gridRes + k * gridRes * gridRes;
+                            if (bakedSdfData[idx] >= 0.0f)
+                            {
+                                continue;
+                            }
+
+                            Vector3 cellCenter = new Vector3(
+                                FlipSolverConstants.DOMAIN_MIN + (i + 0.5f) * FlipSolverConstants.CELL_SIZE,
+                                FlipSolverConstants.DOMAIN_MIN + (j + 0.5f) * FlipSolverConstants.CELL_SIZE,
+                                FlipSolverConstants.DOMAIN_MIN + (k + 0.5f) * FlipSolverConstants.CELL_SIZE);
+
+                            for (int p = 0; p < ParticlesPerCell; p++)
+                            {
+                                Vector3 position = cellCenter + new Vector3(
+                                    NextJitter(random, halfCell),
+                                    NextJitter(random, halfCell),
+                                    NextJitter(random, halfCell));
+
+                                particleList.Add(position.x);
+                                particleList.Add(position.y);
+                                particleList.Add(position.z);
+                                particleList.Add(0.0f);
+                                particleList.Add(0.0f);
+                                particleList.Add(0.0f);
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                const int minI = 24;
+                const int maxI = 40;
+                const int minJ = 28;
+                const int maxJ = 44;
+                const int minK = 24;
+                const int maxK = 40;
+
+                for (int k = minK; k < maxK; k++)
+                {
+                    for (int j = minJ; j < maxJ; j++)
+                    {
+                        for (int i = minI; i < maxI; i++)
+                        {
+                            Vector3 cellCenter = new Vector3(
+                                FlipSolverConstants.DOMAIN_MIN + (i + 0.5f) * FlipSolverConstants.CELL_SIZE,
+                                FlipSolverConstants.DOMAIN_MIN + (j + 0.5f) * FlipSolverConstants.CELL_SIZE,
+                                FlipSolverConstants.DOMAIN_MIN + (k + 0.5f) * FlipSolverConstants.CELL_SIZE);
+
+                            for (int p = 0; p < ParticlesPerCell; p++)
+                            {
+                                Vector3 position = cellCenter + new Vector3(
+                                    NextJitter(random, halfCell),
+                                    NextJitter(random, halfCell),
+                                    NextJitter(random, halfCell));
+
+                                particleList.Add(position.x);
+                                particleList.Add(position.y);
+                                particleList.Add(position.z);
+                                particleList.Add(0.0f);
+                                particleList.Add(0.0f);
+                                particleList.Add(0.0f);
+                            }
                         }
                     }
                 }
             }
 
-            particleBuffer = new ComputeBuffer(particleCount * ParticleFloatStride, sizeof(float));
+            float[] particleData = particleList.ToArray();
+            particleCount = particleData.Length / ParticleFloatStride;
+            particleReadback = new float[particleData.Length];
+
+            particleBuffer = new ComputeBuffer(particleData.Length, sizeof(float));
             particleBuffer.SetData(particleData);
+
+            Debug.Log($"[FlipSolver] Created {particleCount} particles ({(bakedSdfData != null ? "SDF-aware" : "fallback")} path)");
         }
 
         private void CacheKernelIds()
@@ -377,6 +501,11 @@ namespace Liquid.FluidSolver
             SetCommonGridParams(classifyCellsCS);
             float bhe = FlipSolverConstants.BOX_HALF_EXTENT;
             classifyCellsCS.SetFloats("boxHalfExtent", bhe, bhe, bhe);
+            classifyCellsCS.SetInt("_UseSDFTexture", useSDFTexture ? 1 : 0);
+            if (useSDFTexture)
+            {
+                classifyCellsCS.SetTexture(clearGridKernel, "_SDFTexture", sdfTexture);
+            }
             classifyCellsCS.SetBuffer(clearGridKernel, "cellType", gridCellType);
             classifyCellsCS.SetBuffer(clearGridKernel, "velX", gridVelX);
             classifyCellsCS.SetBuffer(clearGridKernel, "velY", gridVelY);
@@ -545,6 +674,11 @@ namespace Liquid.FluidSolver
             advectCS.SetInt("particleCount", particleCount);
             float bhe = FlipSolverConstants.BOX_HALF_EXTENT;
             advectCS.SetFloats("boxHalfExtent", bhe, bhe, bhe);
+            advectCS.SetInt("_UseSDFTexture", useSDFTexture ? 1 : 0);
+            if (useSDFTexture)
+            {
+                advectCS.SetTexture(advectKernel, "_SDFTexture", sdfTexture);
+            }
             advectCS.SetBuffer(advectKernel, "particleBuf", particleBuffer);
             advectCS.Dispatch(advectKernel, DivUp(particleCount, ParticleThreadGroupSize), 1, 1);
         }
