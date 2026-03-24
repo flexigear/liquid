@@ -1,24 +1,83 @@
 #pragma kernel CSMain
 
 int GRID_RES;
-float gravity;
+float DOMAIN_MIN;
+float CELL_SIZE;
+float3 gravityVec;
+float3 angularVel;
+float3 angularAccel;
 float dt;
 
+RWStructuredBuffer<float> velX;
 RWStructuredBuffer<float> velY;
+RWStructuredBuffer<float> velZ;
+
+uint VelXIndex(uint i, uint j, uint k)
+{
+    return i + j * (uint)(GRID_RES + 1) + k * (uint)(GRID_RES + 1) * (uint)GRID_RES;
+}
 
 uint VelYIndex(uint i, uint j, uint k)
 {
     return i + j * (uint)GRID_RES + k * (uint)GRID_RES * (uint)(GRID_RES + 1);
 }
 
+uint VelZIndex(uint i, uint j, uint k)
+{
+    return i + j * (uint)GRID_RES + k * (uint)GRID_RES * (uint)GRID_RES;
+}
+
+float3 FictitiousAccel(float3 r)
+{
+    float3 euler = -cross(angularAccel, r);
+    float3 centrifugal = -cross(angularVel, cross(angularVel, r));
+    return euler + centrifugal;
+}
+
 [numthreads(8, 8, 8)]
 void CSMain(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= (uint)GRID_RES || id.y >= (uint)(GRID_RES + 1) || id.z >= (uint)GRID_RES)
+    if (id.x >= (uint)GRID_RES || id.y >= (uint)GRID_RES || id.z >= (uint)GRID_RES)
     {
         return;
     }
 
-    uint index = VelYIndex(id.x, id.y, id.z);
-    velY[index] -= gravity * dt;
+    float3 posX = float3(
+        DOMAIN_MIN + id.x * CELL_SIZE,
+        DOMAIN_MIN + (id.y + 0.5) * CELL_SIZE,
+        DOMAIN_MIN + (id.z + 0.5) * CELL_SIZE);
+    float3 forceX = gravityVec + FictitiousAccel(posX);
+    velX[VelXIndex(id.x, id.y, id.z)] += forceX.x * dt;
+
+    float3 posY = float3(
+        DOMAIN_MIN + (id.x + 0.5) * CELL_SIZE,
+        DOMAIN_MIN + id.y * CELL_SIZE,
+        DOMAIN_MIN + (id.z + 0.5) * CELL_SIZE);
+    float3 forceY = gravityVec + FictitiousAccel(posY);
+    velY[VelYIndex(id.x, id.y, id.z)] += forceY.y * dt;
+
+    float3 posZ = float3(
+        DOMAIN_MIN + (id.x + 0.5) * CELL_SIZE,
+        DOMAIN_MIN + (id.y + 0.5) * CELL_SIZE,
+        DOMAIN_MIN + id.z * CELL_SIZE);
+    float3 forceZ = gravityVec + FictitiousAccel(posZ);
+    velZ[VelZIndex(id.x, id.y, id.z)] += forceZ.z * dt;
+
+    if (id.x == (uint)(GRID_RES - 1))
+    {
+        float3 posXe = float3(DOMAIN_MIN + (id.x + 1u) * CELL_SIZE, posX.y, posX.z);
+        velX[VelXIndex(id.x + 1u, id.y, id.z)] += (gravityVec + FictitiousAccel(posXe)).x * dt;
+    }
+
+    if (id.y == (uint)(GRID_RES - 1))
+    {
+        float3 posYe = float3(posY.x, DOMAIN_MIN + (id.y + 1u) * CELL_SIZE, posY.z);
+        velY[VelYIndex(id.x, id.y + 1u, id.z)] += (gravityVec + FictitiousAccel(posYe)).y * dt;
+    }
+
+    if (id.z == (uint)(GRID_RES - 1))
+    {
+        float3 posZe = float3(posZ.x, posZ.y, DOMAIN_MIN + (id.z + 1u) * CELL_SIZE);
+        velZ[VelZIndex(id.x, id.y, id.z + 1u)] += (gravityVec + FictitiousAccel(posZe)).z * dt;
+    }
 }

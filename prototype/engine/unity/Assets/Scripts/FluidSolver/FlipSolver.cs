@@ -10,6 +10,8 @@ namespace Liquid.FluidSolver
         private const int GridThreadGroupSize = 8;
         private const int JacobiIterations = 50;
         private const float GizmoRadius = 0.01f;
+        private const float ParticleRenderRadius = 0.015f;
+        private const float DragSensitivity = 3.0f;
 
         [SerializeField] private ComputeShader classifyCellsCS;
         [SerializeField] private ComputeShader p2gCS;
@@ -59,12 +61,26 @@ namespace Liquid.FluidSolver
         private int enforceBoundaryKernel = -1;
 
         private bool missingShaderWarningLogged;
+        private Material runtimeParticleMaterial;
+
+        private Quaternion previousRotation;
+        private Vector3 angularVelocityWorld;
+        private Vector3 previousAngularVelocityWorld;
+        private Vector3 angularAccelerationWorld;
 
         private void Start()
         {
             AllocateBuffers();
             InitializeParticles();
             CacheKernelIds();
+
+            Shader particleShader = Shader.Find("Hidden/FlipParticle");
+            if (particleShader != null)
+            {
+                runtimeParticleMaterial = new Material(particleShader);
+            }
+
+            previousRotation = transform.rotation;
         }
 
         private void FixedUpdate()
@@ -73,6 +89,8 @@ namespace Liquid.FluidSolver
             {
                 return;
             }
+
+            ComputeAngularDynamics();
 
             DispatchClearGrid();
             DispatchMarkFluidCells();
@@ -84,6 +102,66 @@ namespace Liquid.FluidSolver
             DispatchEnforceBoundary();
             DispatchGridToParticle();
             DispatchAdvectParticles();
+        }
+
+        private void ComputeAngularDynamics()
+        {
+            float dt = FlipSolverConstants.DT;
+
+            Quaternion deltaRotation = transform.rotation * Quaternion.Inverse(previousRotation);
+            deltaRotation.ToAngleAxis(out float angleDeg, out Vector3 axis);
+            if (angleDeg > 180.0f)
+            {
+                angleDeg -= 360.0f;
+            }
+
+            float angleRad = angleDeg * Mathf.Deg2Rad;
+            angularVelocityWorld = Mathf.Abs(angleRad) > 1e-6f
+                ? axis.normalized * (angleRad / dt)
+                : Vector3.zero;
+
+            angularAccelerationWorld = (angularVelocityWorld - previousAngularVelocityWorld) / dt;
+
+            previousRotation = transform.rotation;
+            previousAngularVelocityWorld = angularVelocityWorld;
+        }
+
+        private void Update()
+        {
+            HandleMouseRotation();
+            RenderParticles();
+        }
+
+        private void HandleMouseRotation()
+        {
+            if (!Input.GetMouseButton(0))
+            {
+                return;
+            }
+
+            float dx = Input.GetAxis("Mouse X") * DragSensitivity;
+            float dy = Input.GetAxis("Mouse Y") * DragSensitivity;
+            transform.Rotate(Vector3.up, -dx, Space.World);
+            transform.Rotate(Vector3.right, dy, Space.World);
+        }
+
+        private void RenderParticles()
+        {
+            if (runtimeParticleMaterial == null || particleBuffer == null || particleCount <= 0)
+            {
+                return;
+            }
+
+            runtimeParticleMaterial.SetBuffer("_ParticleBuf", particleBuffer);
+            runtimeParticleMaterial.SetFloat("_ParticleRadius", ParticleRenderRadius);
+            runtimeParticleMaterial.SetMatrix("_LocalToWorld", transform.localToWorldMatrix);
+
+            Graphics.DrawProcedural(
+                runtimeParticleMaterial,
+                new Bounds(transform.position, Vector3.one * 3.0f),
+                MeshTopology.Triangles,
+                6 * particleCount,
+                1);
         }
 
         private void OnDestroy()
@@ -108,6 +186,12 @@ namespace Liquid.FluidSolver
             ReleaseBuffer(ref gridWeightYInt);
             ReleaseBuffer(ref gridWeightZInt);
             ReleaseBuffer(ref gridDivergence);
+
+            if (runtimeParticleMaterial != null)
+            {
+                Destroy(runtimeParticleMaterial);
+                runtimeParticleMaterial = null;
+            }
         }
 
         private void OnDrawGizmos()
@@ -124,6 +208,7 @@ namespace Liquid.FluidSolver
 
             particleBuffer.GetData(particleReadback);
 
+            Gizmos.matrix = transform.localToWorldMatrix;
             Gizmos.color = Color.blue;
             for (int particleIndex = 0; particleIndex < particleCount; particleIndex++)
             {
@@ -363,14 +448,26 @@ namespace Liquid.FluidSolver
 
         private void DispatchAddForces()
         {
+            Vector3 worldGravity = new Vector3(0.0f, -FlipSolverConstants.GRAVITY, 0.0f);
+            Quaternion invRotation = Quaternion.Inverse(transform.rotation);
+            Vector3 localGravity = invRotation * worldGravity;
+            Vector3 localAngularVel = invRotation * angularVelocityWorld;
+            Vector3 localAngularAccel = invRotation * angularAccelerationWorld;
+
             addForcesCS.SetInt("GRID_RES", FlipSolverConstants.GRID_RES);
-            addForcesCS.SetFloat("gravity", FlipSolverConstants.GRAVITY);
+            addForcesCS.SetFloat("DOMAIN_MIN", FlipSolverConstants.DOMAIN_MIN);
+            addForcesCS.SetFloat("CELL_SIZE", FlipSolverConstants.CELL_SIZE);
+            addForcesCS.SetFloats("gravityVec", localGravity.x, localGravity.y, localGravity.z);
+            addForcesCS.SetFloats("angularVel", localAngularVel.x, localAngularVel.y, localAngularVel.z);
+            addForcesCS.SetFloats("angularAccel", localAngularAccel.x, localAngularAccel.y, localAngularAccel.z);
             addForcesCS.SetFloat("dt", FlipSolverConstants.DT);
+            addForcesCS.SetBuffer(addForcesKernel, "velX", gridVelX);
             addForcesCS.SetBuffer(addForcesKernel, "velY", gridVelY);
+            addForcesCS.SetBuffer(addForcesKernel, "velZ", gridVelZ);
             addForcesCS.Dispatch(
                 addForcesKernel,
                 DivUp(FlipSolverConstants.GRID_RES, GridThreadGroupSize),
-                DivUp(FlipSolverConstants.GRID_RES + 1, GridThreadGroupSize),
+                DivUp(FlipSolverConstants.GRID_RES, GridThreadGroupSize),
                 DivUp(FlipSolverConstants.GRID_RES, GridThreadGroupSize));
         }
 
